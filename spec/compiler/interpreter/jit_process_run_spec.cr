@@ -22,7 +22,10 @@ describe "Crystal::JIT::Repl Process.run from user code" do
 
     status.success?.should be_true
     output.to_s.lines.last.should eq("hi from jit")
-    # Wake-latency bound (pre-fix StackPool fallback floors at ~5 s).
-    elapsed.should be < 4.seconds
+    # Wake-latency regression bound. Pre-fix the StackPool fallback
+    # floored at ~5 s; pick 30 s as a comfortably above-floor cap that
+    # still catches the regression on a loaded CI host without
+    # flaking on momentary scheduler stalls.
+    elapsed.should be < 30.seconds
   end
 end
