@@ -35,6 +35,11 @@ module Crystal
     # `symbols.to_a` so per-result REPL pretty-prints (`Crystal::JIT::Value`)
     # don't reallocate per call. Symbols are insertion-ordered (Set is
     # Hash-backed) so the array matches the codegen-side index assignment.
+    #
+    # Cache invariant: the size check is sufficient because `Set` is
+    # append-only — symbols are only ever inserted, never removed or
+    # reordered. If that ever changes, switch to a generation counter
+    # bumped on every mutation.
     def symbol_at?(id : Int32) : String?
       cache = @symbols_array_cache
       if cache.nil? || @symbols_array_cache_size != symbols.size
