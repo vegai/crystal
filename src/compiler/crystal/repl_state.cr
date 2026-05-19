@@ -104,7 +104,13 @@ module Crystal
       clear_proc_literal_names
     end
 
-    # Mirrors `emitted_globals` for const globals.
+    # Const globals are recorded into a parallel set because they have a
+    # distinct lifecycle from class-var / module globals: const re-emit
+    # is driven by `pending_const_reinits` (AST-replacement), not by
+    # `global_emitted?` (the linkage gate that class vars use). Keeping
+    # the sets separate prevents the `global_emitted?` query from
+    # accidentally claiming a const global was already lifted as a
+    # mutable class-var slot.
     getter emitted_const_globals = Set(String).new
 
     def mark_const_global_emitted(name : String) : Nil
