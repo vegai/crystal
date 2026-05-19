@@ -61,5 +61,23 @@ module Crystal::JIT
         false
       end
     end
+
+    # Walks `node` and yields each visited descendant (and `node` itself)
+    # to the block, returning true on the first match. Short-circuits via
+    # `BoolFlagVisitor`. Use this instead of restating the
+    # `BoolFlagVisitor.found_in?(node) { ... }` pattern at every call site.
+    def any_descendant?(node : Crystal::ASTNode, &predicate : Crystal::ASTNode -> Bool) : Bool
+      BoolFlagVisitor.found_in?(node, &predicate)
+    end
+
+    # Sugared variants of `any_descendant?` for the three predicates the
+    # JIT REPL consults from `Repl` and `Session`.
+    def any_type_mutating?(node : Crystal::ASTNode) : Bool
+      any_descendant?(node) { |n| type_mutating?(n) }
+    end
+
+    def any_defines_value?(node : Crystal::ASTNode) : Bool
+      any_descendant?(node) { |n| defines_value?(n) }
+    end
   end
 end

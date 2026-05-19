@@ -119,7 +119,7 @@ module Crystal::JIT
     end
 
     private def contains_underscore?(node : ASTNode) : Bool
-      BoolFlagVisitor.found_in?(node) { |n| n.is_a?(Underscore) }
+      AstShape.any_descendant?(node) { |n| n.is_a?(Underscore) }
     end
 
     # Replays cached typed instances for a redef whose args are

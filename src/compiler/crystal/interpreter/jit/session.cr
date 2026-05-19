@@ -297,7 +297,7 @@ module Crystal::JIT
       # through the Normalizer too. The pass is idempotent on already
       # normalized children.
       node = @program.normalize(node)
-      type_graph_dirty = BoolFlagVisitor.found_in?(node) { |n| AstShape.type_mutating?(n) }
+      type_graph_dirty = AstShape.any_type_mutating?(node)
       node = semantic_for_submission(node, type_graph_dirty)
       if type_graph_dirty || !@libs_initialized
         ensure_libraries_loaded
@@ -332,7 +332,7 @@ module Crystal::JIT
       @main_visitor = MainVisitor.new(from_main_visitor: @main_visitor)
       repl_state.begin_submission!
       input = @program.normalize(input)
-      type_graph_dirty = BoolFlagVisitor.found_in?(input) { |n| AstShape.type_mutating?(n) }
+      type_graph_dirty = AstShape.any_type_mutating?(input)
       walked_input = semantic_for_submission(input, type_graph_dirty)
       if type_graph_dirty || !@libs_initialized
         ensure_libraries_loaded

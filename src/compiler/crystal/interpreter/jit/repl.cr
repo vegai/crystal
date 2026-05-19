@@ -169,7 +169,7 @@ module Crystal::JIT
       input_node = parse_code(code, "(jit)")
       # Method-defining input may be a hot redef; clear the wrapper
       # cache so call sites recompile against the new dispatch slot.
-      if BoolFlagVisitor.found_in?(input_node) { |n| AstShape.defines_value?(n) }
+      if AstShape.any_defines_value?(input_node)
         @wrapper_cache.clear
         input_node = RedefForce.inject(input_node, @program)
       elsif cached = @wrapper_cache.delete(code)
