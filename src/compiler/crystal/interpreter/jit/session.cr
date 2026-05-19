@@ -7,9 +7,24 @@ module Crystal::JIT
     # this list explicitly. Drained on `dispose`; interactive use only
     # drains on a clean exit. See PROTOTYPE_STATUS.md "Known issues".
     @@alive = [] of Session
+    @@at_exit_installed = false
 
     def self.each_alive(&block : Session ->) : Nil
       @@alive.dup.each(&block)
+    end
+
+    # Arms (once) a host-side `at_exit` that disposes any Session still
+    # pinned in `@@alive`. Closes the interactive-only-clean-exit gap so
+    # a process exit without explicit `Repl#reset` still tears down JIT
+    # pages on the main thread (where LLVM teardown is safe).
+    def self.ensure_at_exit_drain : Nil
+      return if @@at_exit_installed
+      @@at_exit_installed = true
+      ::at_exit do
+        @@alive.dup.each do |session|
+          session.dispose rescue nil
+        end
+      end
     end
 
     getter program : Program
@@ -46,9 +61,8 @@ module Crystal::JIT
       @program.enable_repl_state!
       @main_visitor = MainVisitor.new(@program)
       install_program_args(["jit"])
-      # TODO: pin into `@@alive`; see decl above and PROTOTYPE_STATUS.md
-      # "Known issues" for the interactive-only drain behaviour.
       @@alive << self
+      Session.ensure_at_exit_drain
     end
 
     # `Repl#kick_off_warmup` arms this before spawning the background fiber;

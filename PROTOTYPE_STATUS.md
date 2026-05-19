@@ -62,7 +62,7 @@ Measured on CachyOS / Crystal 1.21.0-dev / LLVM 22.1.5. Wall-clock, smallest-of-
 
 - One spec is excluded from the JIT subprocess runner as known-flaky: `jit_top_level_reassign_spec` under `--location` filtering reports 0 examples ~3-of-4 runs. Passes reliably when invoked without `--location`. Still runnable manually under its gate.
 - `Crystal::EventLoop.@@registry` is append-only. Each `Repl#reset` plus subsequent submission registers another EventLoop instance from JIT-mapped memory; entries from disposed Sessions remain in the registry. `interrupt_all` walks them all, so a cross-context wake on a post-reset Repl touches stale entries pointing at unmapped JIT pages. Interactive use stays single-Session in the prototype, so the registry stays bounded in practice; a real fix needs Session-scoped registration.
-- `Crystal::JIT::Session.@@alive` is drained only on `Session#dispose`. Specs call `SpecSupport.dispose_all_sessions` between runs; interactive use only drains on a clean exit, so a session that crashes without dispose holds onto its pin.
+- `Crystal::JIT::Session.@@alive` is drained on `Session#dispose` and on the host `at_exit` hook armed when the first Session is constructed. Specs call `SpecSupport.dispose_all_sessions` between runs; interactive use that exits cleanly (Ctrl-D, `exit`, unhandled exception that reaches the main fiber) now drains via the hook. SIGKILL still leaks, but the prototype no longer keeps a pin past a normal process exit.
 
 ## Open direction
 
