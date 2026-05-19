@@ -292,6 +292,18 @@ module Crystal::System::SignalChildHandler
   # Optional callback for reaped pids not in `@@waiting`. Returns
   # true to claim the pid (reaper drops it), false to leave it in
   # `@@pending` for a later `wait(pid)`.
+  #
+  # The JIT REPL installs a callback that forwards into the JIT
+  # module's own `notify_reaped`. That re-locks `@@mutex` and then
+  # calls `Crystal::EventLoop.interrupt_all`, which grabs
+  # `@@registry_mutex`. The whole pipeline only avoids deadlock
+  # because the JIT module's class-var copy of `@@mutex` is a
+  # distinct object from the host's, produced by ORC +
+  # `link_symbols_from_current_process` + `LinkOnceODR` linkage on
+  # the JIT side. Lock order: host signal `@@mutex` -> JIT signal
+  # `@@mutex` -> JIT `EventLoop.@@registry_mutex`. A future linker
+  # tweak that merges the two `@@mutex` copies into one object would
+  # silently deadlock here.
   @@external_reaper : Proc(LibC::PidT, Int32, Bool)? = nil
 
   def self.external_reaper=(callback : Proc(LibC::PidT, Int32, Bool)?) : Nil
@@ -351,7 +363,14 @@ module Crystal::System::SignalChildHandler
   end
 
   {% if flag?(:host_signal_handlers_already_installed) %}
-    # JIT-only hook invoked by the host's `external_reaper`.
+    # JIT-only hook invoked by the host's `external_reaper`. The host
+    # holds *its* `@@mutex` across this call (see `handle_reaped`),
+    # and we then lock *our* `@@mutex` here. The two must be distinct
+    # objects: the JIT module's class-var storage uses LinkOnceODR
+    # linkage so ORC resolves a fresh copy at JIT-link time, even
+    # though `link_symbols_from_current_process` lets us see the host
+    # symbol table. After our lock is released, `EventLoop.interrupt_all`
+    # grabs the JIT-side `@@registry_mutex` (third lock in order).
     def self.notify_reaped(pid : LibC::PidT, exit_code : Int32) : Bool
       @@mutex.lock
       if channel = @@waiting.delete(pid)
