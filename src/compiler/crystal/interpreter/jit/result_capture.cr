@@ -35,8 +35,8 @@ module Crystal::JIT
         EVAL_HOLDER_CLASS_VAR, "String", Crystal::StringLiteral.new("nil"), synth_loc)
 
       # Class-method getter that `eval_for_spec` calls from the top level
-      # after `prepare_top_level_for_submission` wraps everything in
-      # `module __REPLState`. `self` receiver keeps it out of the lifter.
+      # after `wrap_in_repl_state` wraps everything in `module __REPLState`.
+      # `self` receiver keeps it out of the lifter.
       getter_def = AstHelpers.def_with_self_receiver(
         EVAL_HOLDER_GETTER_NAME, [] of Crystal::Arg,
         Crystal::ClassVar.new(EVAL_HOLDER_CLASS_VAR))

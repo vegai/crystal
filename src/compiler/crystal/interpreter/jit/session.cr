@@ -114,20 +114,49 @@ module Crystal::JIT
     # Rewrites top-level local assigns/refs in `node` to class variables on
     # a synthetic `__REPLState` module so values persist across submissions,
     # then wraps the body in `module __REPLState ... end`. `require`s hoist
-    # out as siblings of the wrapper. With `rescue_handler`, runtime
-    # statements get grouped through it; declarations stay at body level.
-    def prepare_top_level_for_submission(node : ASTNode, rescue_handler : (ASTNode -> ASTNode)? = nil) : ASTNode
+    # out as siblings of the wrapper. Compose with `wrap_runtime_with_rescue`
+    # when the submission's runtime statements need a JIT-internal rescue.
+    def wrap_in_repl_state(node : ASTNode) : ASTNode
       inner = node.transform(LocalLifter.new(@repl_locals))
 
-      partitioner = ModuleWrapPartitioner.new(rescue_handler)
+      partitioner = ModuleWrapPartitioner.new
       partitioner.classify(inner)
-      partitioner.flush
 
       module_def = ModuleDef.new(Path.new("__REPLState"), Expressions.from(partitioner.body))
       if partitioner.outer.empty?
         module_def
       else
         Expressions.from(partitioner.outer.concat([module_def.as(ASTNode)]))
+      end
+    end
+
+    # Groups consecutive runtime statements in the `__REPLState` module body
+    # of an already-`wrap_in_repl_state`'d node through `handler` (typically
+    # an `ExceptionHandler` builder). Declarations stay at body level.
+    def wrap_runtime_with_rescue(node : ASTNode, handler : ASTNode -> ASTNode) : ASTNode
+      rewrite_repl_state_body(node) do |body|
+        RuntimeRescueGrouper.group(body, handler)
+      end
+    end
+
+    # Replaces the body of the `__REPLState` ModuleDef found inside `node`
+    # with the result of `block.call(body)`. Handles both shapes produced
+    # by `wrap_in_repl_state`: a bare `ModuleDef` and an `Expressions`
+    # containing requires followed by the `ModuleDef`.
+    private def rewrite_repl_state_body(node : ASTNode, & : ASTNode -> ASTNode) : ASTNode
+      case node
+      when ModuleDef
+        node.body = yield node.body
+        node
+      when Expressions
+        node.expressions.each do |child|
+          next unless child.is_a?(ModuleDef)
+          child.body = yield child.body
+          return node
+        end
+        raise "BUG: wrap_runtime_with_rescue: no __REPLState ModuleDef in Expressions"
+      else
+        raise "BUG: wrap_runtime_with_rescue: expected wrap_in_repl_state output, got #{node.class}"
       end
     end
 
@@ -157,40 +186,57 @@ module Crystal::JIT
     end
 
     # Splits a submission body into siblings of the `module __REPLState` wrap
-    # (`outer`) and members of its body (`body`). With a `rescue_handler`,
-    # consecutive runtime statements are grouped and passed through it.
+    # (`outer`) and members of its body (`body`). Requires hoist out; the rest
+    # stays inside the wrapper.
     private class ModuleWrapPartitioner
       getter outer = [] of ASTNode
       getter body = [] of ASTNode
-      @runtime_group = [] of ASTNode
-
-      def initialize(@rescue_handler : (ASTNode -> ASTNode)? = nil)
-      end
 
       def classify(node : ASTNode) : Nil
         case node
         when Expressions
           node.expressions.each { |child| classify(child) }
         when Require
-          flush
           @outer << node
         else
-          if @rescue_handler.nil? || AstShape.declaration?(node)
-            flush
-            @body << node
-          else
-            @runtime_group << node
-          end
+          @body << node
         end
       end
+    end
 
-      def flush : Nil
-        return if @runtime_group.empty?
-        handler = @rescue_handler
-        return unless handler
-        grouped = @runtime_group.size == 1 ? @runtime_group[0] : Expressions.new(@runtime_group.dup)
-        @body << handler.call(grouped)
-        @runtime_group.clear
+    # Walks a flat body sequence and groups consecutive non-declaration
+    # nodes through `handler` (which builds an `ExceptionHandler` around its
+    # input). Declarations remain at their original position so the JIT's
+    # codegen doesn't trip on `def`/`class`/`@@__repl_*=…` inside a rescue.
+    private class RuntimeRescueGrouper
+      def self.group(body : ASTNode, handler : ASTNode -> ASTNode) : ASTNode
+        return body if body.is_a?(Nop)
+        rewritten = [] of ASTNode
+        runtime_group = [] of ASTNode
+        children =
+          case body
+          when Expressions
+            body.expressions
+          else
+            [body]
+          end
+        children.each do |child|
+          if AstShape.declaration?(child)
+            flush_group(rewritten, runtime_group, handler)
+            rewritten << child
+          else
+            runtime_group << child
+          end
+        end
+        flush_group(rewritten, runtime_group, handler)
+        Expressions.from(rewritten)
+      end
+
+      private def self.flush_group(rewritten : Array(ASTNode), runtime_group : Array(ASTNode), handler : ASTNode -> ASTNode) : Nil
+        return if runtime_group.empty?
+        grouped = runtime_group.size == 1 ? runtime_group[0] : Expressions.new(runtime_group.dup)
+        rewritten << handler.call(grouped)
+        runtime_group.clear
       end
     end
 

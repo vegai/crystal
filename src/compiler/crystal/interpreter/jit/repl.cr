@@ -129,7 +129,8 @@ module Crystal::JIT
       with_rescue(error_value: 1) do
         input_node = parse_code(source, "(jit-eval)")
         input_node = RedefForce.inject(input_node, @program)
-        input_node = @session.prepare_top_level_for_submission(input_node, ->(n : ASTNode) : ASTNode { build_rescue_handler(n, prefix: "Unhandled exception: ", exit_on_error: true) })
+        input_node = @session.wrap_in_repl_state(input_node)
+        input_node = @session.wrap_runtime_with_rescue(input_node, ->(n : ASTNode) : ASTNode { build_rescue_handler(n, prefix: "Unhandled exception: ", exit_on_error: true) })
         compile_and_run_input(input_node)
         mark_submission_compiled
         0
@@ -192,7 +193,7 @@ module Crystal::JIT
       input_node = parse_code(line, "(jit-eval)")
       input_node = RedefForce.inject(input_node, @program)
       input_node = ResultCapture.wrap_for_value(input_node)
-      input_node = @session.prepare_top_level_for_submission(input_node)
+      input_node = @session.wrap_in_repl_state(input_node)
       # `__REPLState` has nil value; tack a top-level getter call so the
       # wrapper's last expression is the captured value.
       reader = Call.new(Path.new("__REPLState"), ResultCapture::EVAL_HOLDER_GETTER_NAME)
@@ -211,7 +212,8 @@ module Crystal::JIT
         input_node = RedefForce.inject(input_node, @program)
         input_node = ResultCapture.wrap(input_node)
         # JIT-internal rescue keeps the unwind off the host's type_id tables.
-        input_node = @session.prepare_top_level_for_submission(input_node, ->(n : ASTNode) : ASTNode { build_rescue_handler(n) })
+        input_node = @session.wrap_in_repl_state(input_node)
+        input_node = @session.wrap_runtime_with_rescue(input_node, ->(n : ASTNode) : ASTNode { build_rescue_handler(n) })
         compile_and_run_input(input_node)
         mark_submission_compiled
       end
