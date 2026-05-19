@@ -53,6 +53,14 @@ module Crystal
     getter emitted_stubs = Hash(String, Int32).new
     getter pending_slot_updates = [] of {String, String}
 
+    def emitted_stub_version?(canonical : String) : Int32?
+      @emitted_stubs[canonical]?
+    end
+
+    def set_emitted_stub_version(canonical : String, version : Int32) : Nil
+      @emitted_stubs[canonical] = version
+    end
+
     def queue_slot_update(slot : String, body : String) : Nil
       @pending_slot_updates << {slot, body}
     end
@@ -120,6 +128,10 @@ module Crystal
     # each `add_llvm_ir_module`.
     property symbol_table_version : Int32 = 0
     getter pending_symbol_table_update : {String, String}? = nil
+
+    def bump_symbol_table_version : Int32
+      @symbol_table_version += 1
+    end
 
     def queue_symbol_table_update(slot : String, table : String) : Nil
       @pending_symbol_table_update = {slot, table}

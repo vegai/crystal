@@ -166,15 +166,15 @@ module Crystal
       end
 
       def emitted_stub_version?(canonical : String) : Int32?
-        @state.emitted_stubs[canonical]?
+        @state.emitted_stub_version?(canonical)
       end
 
       def set_emitted_stub_version(canonical : String, version : Int32) : Nil
-        @state.emitted_stubs[canonical] = version
+        @state.set_emitted_stub_version(canonical, version)
       end
 
       def bump_symbol_table_version : Int32
-        @state.symbol_table_version += 1
+        @state.bump_symbol_table_version
       end
     end
   end
