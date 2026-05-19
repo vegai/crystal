@@ -456,6 +456,8 @@ module Crystal
 
     SYMBOL_TABLE_SLOT_NAME = ":symbol_table:slot"
 
+    # Nilable pointer is 8 bytes on AOT visitors where this is never
+    # read; the cost is below the threshold for a separate visitor type.
     @repl_symbol_table_name : String?
 
     # Memoised once per CodeGenVisitor in repl_mode. AOT keeps the
@@ -468,6 +470,10 @@ module Crystal
       @repl_symbol_table_name ||= "#{SYMBOL_TABLE_NAME}:v#{active_hooks.bump_symbol_table_version}"
     end
 
+    # Callers must have checked `@program.symbols` is non-empty (either
+    # the symbol-table emission guard or a `symbol_to_s` primitive whose
+    # presence in IR proves at least one symbol exists). Allocating a
+    # slot for an empty symbol table would leak a global per submission.
     def ensure_repl_symbol_table_slot : LLVM::Value
       @main_mod.globals[SYMBOL_TABLE_SLOT_NAME]? || allocate_repl_symbol_table_slot
     end
