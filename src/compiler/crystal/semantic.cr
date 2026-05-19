@@ -18,6 +18,11 @@ class Crystal::Program
   # Runs semantic analysis on the given node, returning a node
   # that's typed. In the process types and methods are defined in
   # this program.
+  #
+  # The JIT REPL mirrors these phases in
+  # `Crystal::JIT::Session#semantic_for_submission` so it can skip stages
+  # that aren't safe to re-run per submission. Any new visitor added here
+  # must also be added (or explicitly skipped) there.
   def semantic(node : ASTNode, cleanup = true, main_visitor : MainVisitor = MainVisitor.new(self)) : ASTNode
     node, processor = top_level_semantic(node, main_visitor)
 
@@ -56,6 +61,10 @@ class Crystal::Program
   #
   # This alone is useful for some tools like doc or hierarchy
   # where a full semantic of the program is not needed.
+  #
+  # The JIT REPL mirrors these phases in
+  # `Crystal::JIT::Session#run_top_level_semantic`; new visitors added here
+  # must also be added (or explicitly skipped) there.
   def top_level_semantic(node, main_visitor : MainVisitor = MainVisitor.new(self))
     new_expansions = @progress_tracker.stage("Semantic (top level)") do
       visitor = TopLevelVisitor.new(self)
