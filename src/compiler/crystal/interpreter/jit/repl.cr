@@ -130,7 +130,7 @@ module Crystal::JIT
         input_node = parse_code(source, "(jit-eval)")
         input_node = RedefForce.inject(input_node, @program)
         input_node = @session.wrap_in_repl_state(input_node)
-        input_node = @session.wrap_runtime_with_rescue(input_node, ->(n : ASTNode) : ASTNode { build_rescue_handler(n, prefix: "Unhandled exception: ", exit_on_error: true) })
+        input_node = @session.wrap_runtime_with_rescue(input_node, eval_source_rescue_handler)
         compile_and_run_input(input_node)
         mark_submission_compiled
         0
@@ -213,10 +213,18 @@ module Crystal::JIT
         input_node = ResultCapture.wrap(input_node)
         # JIT-internal rescue keeps the unwind off the host's type_id tables.
         input_node = @session.wrap_in_repl_state(input_node)
-        input_node = @session.wrap_runtime_with_rescue(input_node, ->(n : ASTNode) : ASTNode { build_rescue_handler(n) })
+        input_node = @session.wrap_runtime_with_rescue(input_node, repl_rescue_handler)
         compile_and_run_input(input_node)
         mark_submission_compiled
       end
+    end
+
+    private def repl_rescue_handler : ASTNode -> ASTNode
+      ->(n : ASTNode) : ASTNode { build_rescue_handler(n) }
+    end
+
+    private def eval_source_rescue_handler : ASTNode -> ASTNode
+      ->(n : ASTNode) : ASTNode { build_rescue_handler(n, prefix: "Unhandled exception: ", exit_on_error: true) }
     end
 
     # Wraps a submission body in the JIT's standard CodeError /
