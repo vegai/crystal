@@ -284,9 +284,9 @@ module Crystal
                    @debug = Debug::Default,
                    @frame_pointers : FramePointers = :auto,
                    @llvm_context : LLVM::Context = LLVM::Context.new,
-                   repl_mode : Bool = false,
-                   @well_known_source : ASTNode? = nil)
-      @repl_hooks = ReplCodegenHooks.for(@program, repl_mode)
+                   hooks : ReplCodegenHooks = ReplCodegenHooks::Noop.new)
+      @repl_hooks = hooks
+      @well_known_source = hooks.well_known_source?
       @abi = ABI.from(@program.target_machine)
       # LLVM::Context.register(@llvm_context, "main")
       @llvm_mod = configure_module(@llvm_context.new_module("main_module"))

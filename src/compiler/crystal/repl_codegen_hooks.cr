@@ -7,18 +7,8 @@ module Crystal
   # an `if (rs = @program.repl_state?) && rs.foo(...)` gate that mixed
   # the dispatch decision with the state lookup.
   abstract class ReplCodegenHooks
-    # Returns the right subclass for `program` so callers don't repeat
-    # the nil check at every CodeGenVisitor allocation.
-    def self.for(program : Program, repl_mode : Bool) : ReplCodegenHooks
-      if repl_mode
-        state = program.repl_state? || raise "BUG: repl_mode codegen requires Program#enable_repl_state!"
-        Active.new(state)
-      else
-        Noop.new
-      end
-    end
-
     abstract def repl_mode? : Bool
+    abstract def well_known_source? : ASTNode?
     abstract def const_reinit_pending?(const : Const) : Bool
     abstract def external_emitted?(object_id : UInt64) : Bool
     abstract def mark_external_emitted(object_id : UInt64) : Nil
@@ -40,6 +30,10 @@ module Crystal
     class Noop < ReplCodegenHooks
       def repl_mode? : Bool
         false
+      end
+
+      def well_known_source? : ASTNode?
+        nil
       end
 
       def const_reinit_pending?(const : Const) : Bool
@@ -102,11 +96,15 @@ module Crystal
     end
 
     class Active < ReplCodegenHooks
-      def initialize(@state : ReplState)
+      def initialize(@state : ReplState, @well_known_source : ASTNode? = nil)
       end
 
       def repl_mode? : Bool
         true
+      end
+
+      def well_known_source? : ASTNode?
+        @well_known_source
       end
 
       def const_reinit_pending?(const : Const) : Bool
