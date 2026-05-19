@@ -49,7 +49,7 @@ class Crystal::Command
       end
 
       show_banner
-      exit repl.run_file(filename, options)
+      repl.run_file(filename, options)
     end
   end
 

@@ -56,7 +56,7 @@ class Crystal::Repl
     return EvalResult.new(value: value, warnings: parser.warnings)
   end
 
-  def run_file(filename, argv) : Int32
+  def run_file(filename, argv)
     @interpreter.argv = argv
 
     prelude_node = parse_prelude
@@ -68,7 +68,6 @@ class Crystal::Repl
 
     # Explicitly call exit at the end so at_exit handlers run.
     interpret_exit
-    0
   end
 
   def run_code(code, argv = [] of String)
