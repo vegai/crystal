@@ -30,5 +30,15 @@ describe "Crystal::JIT::Repl layout change refusal" do
     expect_raises(Crystal::JIT::Session::LayoutChangeRefused, /LayoutHostB/) do
       repl.run_code("class LayoutHostB; include LayoutWithIvarMixin; end")
     end
+
+    # Subclass adding a new ivar after the base is already instantiated
+    # is NOT a layout change on the base: base instances stay the same
+    # size, only the (yet-uninstantiated) subclass grows. Refusal must
+    # not fire, and the previously-allocated base instance still works.
+    repl.run_code("class LayoutBaseC; @x : Int32 = 1; def x_base; @x; end; end")
+    repl.run_code("LayoutBaseC.new.x_base").value.to_s.should eq("1")
+    repl.run_code("class LayoutSubC < LayoutBaseC; @y : Int32 = 7; def y_sub; @y; end; end")
+    repl.run_code("LayoutSubC.new.y_sub").value.to_s.should eq("7")
+    repl.run_code("LayoutBaseC.new.x_base").value.to_s.should eq("1")
   end
 end
