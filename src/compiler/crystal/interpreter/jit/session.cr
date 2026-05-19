@@ -18,7 +18,6 @@ module Crystal::JIT
     @submission_counter = 0
     @loader : Crystal::Loader? = nil
     @loaded_lib_names = Set(String).new
-    @last_lib_flags : String? = nil
     @libs_initialized = false
     @lljit : LLVM::Orc::LLJIT? = nil
     @dylib : LLVM::Orc::JITDylib? = nil
