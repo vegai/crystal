@@ -42,12 +42,9 @@ abstract class Crystal::EventLoop
     instance
   end
 
-  # Host AOT builds keep the no-op below; the JIT prelude opts in via
-  # `host_signal_handlers_already_installed` and overrides this with the
-  # real wake plus the registry it iterates.
-  def self.interrupt_all : Nil
-  end
-
+  # Host AOT builds keep the no-op; the JIT prelude opts in via
+  # `host_signal_handlers_already_installed` and gets the real wake plus
+  # the registry it iterates.
   {% if flag?(:unix) && flag?(:host_signal_handlers_already_installed) %}
     # Append-only: EventLoops aren't destroyed in normal use, and the
     # one consumer (`interrupt_all`) tolerates stale entries because
@@ -63,6 +60,9 @@ abstract class Crystal::EventLoop
       @@registry_mutex.synchronize do
         @@registry.each(&.interrupt)
       end
+    end
+  {% else %}
+    def self.interrupt_all : Nil
     end
   {% end %}
 
