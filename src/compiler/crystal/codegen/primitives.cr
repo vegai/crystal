@@ -1005,7 +1005,7 @@ class Crystal::CodeGenVisitor
 
   def codegen_primitive_symbol_to_s(node, target_def, call_args)
     string = llvm_type(@program.string)
-    if @repl_mode
+    if @repl_hooks.repl_mode?
       # Load through `:symbol_table:slot` so symbols added in later
       # submissions are still resolvable; the GEP uses `ptr` instead of
       # the array type so the table's length doesn't leak into the IR.

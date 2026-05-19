@@ -24,7 +24,7 @@ class Crystal::CodeGenVisitor
     # is single-threaded by design so the thread-safety guarantee that
     # `__crystal_once` provides isn't needed here; a MT/EC Crystal
     # program JIT'd at the REPL would need to revisit this.
-    if @repl_mode
+    if @repl_hooks.repl_mode?
       return run_once_inline(flag, func)
     end
 
