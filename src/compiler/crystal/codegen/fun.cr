@@ -61,6 +61,34 @@ class Crystal::CodeGenVisitor
     typed_fun
   end
 
+  # Up-front decision record for `codegen_fun` repl-mode redef versioning.
+  private record RedefPlan,
+    emit_body : Bool,
+    install_stub_first_time : Bool,
+    body_name : String
+
+  private def compute_redef_plan(mangled_name : String, target_def, is_exported_fun : Bool,
+                                 is_fun_literal : Bool, is_closure : Bool) : RedefPlan
+    emit_body = (!target_def.is_a?(External) || is_exported_fun)
+    state = @program.repl_state?
+    if state && state.target_def_emitted?(target_def.object_id)
+      emit_body = false
+    end
+    install_dispatch = emit_body && state && @single_module && !target_def.is_a?(External) && !is_fun_literal && !is_closure
+    return RedefPlan.new(emit_body, false, mangled_name) unless install_dispatch && state
+
+    if existing_version = state.emitted_stubs[mangled_name]?
+      new_version = existing_version + 1
+      state.emitted_stubs[mangled_name] = new_version
+      body_versioned_name = "#{mangled_name}:v#{new_version}"
+      state.queue_slot_update("#{mangled_name}:slot", body_versioned_name)
+      RedefPlan.new(emit_body, false, body_versioned_name)
+    else
+      state.emitted_stubs[mangled_name] = 1
+      RedefPlan.new(emit_body, true, "#{mangled_name}:v1")
+    end
+  end
+
   def codegen_fun(mangled_name, target_def, self_type, is_exported_fun = false, fun_module_info = type_module(self_type), is_fun_literal = false, is_closure = false)
     old_position = insert_block
     old_entry_block = @entry_block
@@ -77,6 +105,14 @@ class Crystal::CodeGenVisitor
 
     old_needs_value = @needs_value
 
+    # repl_mode emits target_def bodies at `:vN` and installs a
+    # LinkOnceODR stub at the canonical name that dispatches through
+    # an updatable slot. Externals/fun literals/closures stay direct.
+    plan = compute_redef_plan(mangled_name, target_def, is_exported_fun, is_fun_literal, is_closure)
+    will_emit_body = plan.emit_body
+    install_stub_first_time = plan.install_stub_first_time
+    body_versioned_name = plan.body_name
+
     with_cloned_context do |old_context|
       context.type = self_type
       context.vars = LLVMVars.new
@@ -92,10 +128,18 @@ class Crystal::CodeGenVisitor
       @catch_pad = nil
       @needs_value = true
 
-      args = codegen_fun_signature(mangled_name, target_def, self_type, is_fun_literal, is_closure)
+      # Body always emits at its final versioned name (`:vN` in repl
+      # dispatch mode, the canonical mangled name otherwise).
+      args = codegen_fun_signature(body_versioned_name, target_def, self_type, is_fun_literal, is_closure)
+      body_fn = context.fun
 
-      needs_body = !target_def.is_a?(External) || is_exported_fun
-      if needs_body
+      # First emission: install the stub at the canonical name before
+      # the body emits so within-body recursion routes through the slot.
+      if install_stub_first_time
+        install_repl_dispatch_stub(mangled_name, body_fn, context.fun_type.not_nil!)
+      end
+
+      if will_emit_body
         emit_def_debug_metadata target_def unless @debug.none?
         set_current_debug_location target_def if @debug.line_numbers?
 
@@ -189,6 +233,23 @@ class Crystal::CodeGenVisitor
         codegen_return(target_def)
 
         br_from_alloca_to_entry
+
+        if state = @program.repl_state?
+          # Definition is now in this submission's module. Mark visible to
+          # later submissions, and promote to a cross-module linkage so ORC
+          # can resolve declarations from those later submissions.
+          if @single_module && !target_def.is_a?(External)
+            body_fn.linkage = LLVM::Linkage::LinkOnceODR
+          end
+          state.mark_target_def_emitted(target_def.object_id)
+        end
+      end
+
+      # Hand the stub back to same-submission callers so their calls
+      # route through the slot rather than baking in a direct call to
+      # the body fn.
+      if install_stub_first_time
+        context.fun = @llvm_mod.functions[mangled_name]
       end
 
       @last = llvm_nil
@@ -262,6 +323,49 @@ class Crystal::CodeGenVisitor
     end
 
     codegen_return target_def.body.type?
+  end
+
+  # Installs a `LinkOnceODR` stub at `canonical_name` that loads
+  # `canonical_name:slot` and tail-calls. `body_fn` is the just-emitted
+  # signature at `:v1`; the slot starts pointing at it. Future redefs
+  # write a new pointer into the slot.
+  private def install_repl_dispatch_stub(canonical_name : String, body_fn : LLVM::Function, body_fn_type : LLVM::Type) : Nil
+    ptr_type = @llvm_context.void_pointer
+
+    slot_name = "#{canonical_name}:slot"
+    slot = @llvm_mod.globals.add(ptr_type, slot_name)
+    slot.linkage = LLVM::Linkage::LinkOnceODR
+    slot.initializer = body_fn.to_value
+
+    stub_typed = add_typed_fun(@llvm_mod, canonical_name, body_fn_type)
+    stub_fn = stub_typed.func
+    stub_fn.linkage = LLVM::Linkage::LinkOnceODR
+    stub_fn.add_attribute LLVM::Attribute::NoInline
+
+    saved_fun = context.fun
+    saved_fun_type = context.fun_type
+    saved_block = insert_block
+    begin
+      context.fun = stub_fn
+      context.fun_type = body_fn_type
+      entry = stub_fn.basic_blocks.append "entry"
+      position_at_end entry
+      fn_ptr = @builder.load(ptr_type, slot, "fn")
+      # Acquire pairs with the release store in `Session#repoint_slot`.
+      fn_ptr.ordering = LLVM::AtomicOrdering::Acquire
+      fn_ptr.alignment = sizeof(Void*).to_u32
+      stub_args = stub_fn.params.to_a.map &.as(LLVM::Value)
+      call_inst = @builder.call(body_fn_type, LLVM::Function.from_value(fn_ptr), stub_args)
+      if body_fn_type.return_type.void?
+        @builder.ret
+      else
+        @builder.ret(call_inst)
+      end
+    ensure
+      context.fun = saved_fun
+      context.fun_type = saved_fun_type
+      position_at_end saved_block if saved_block
+    end
   end
 
   def codegen_fun_signature(mangled_name, target_def, self_type, is_fun_literal, is_closure)
@@ -341,7 +445,7 @@ class Crystal::CodeGenVisitor
       end
     end
 
-    if @single_module && !target_def.is_a?(External)
+    if @single_module && !target_def.is_a?(External) && !@repl_mode
       context.fun.linkage = LLVM::Linkage::Internal
     end
 
@@ -399,7 +503,7 @@ class Crystal::CodeGenVisitor
       context.fun.call_convention = call_convention
     end
 
-    if @single_module && mangled_name.starts_with?("__crystal_")
+    if @single_module && !@repl_mode && mangled_name.starts_with?("__crystal_")
       # FIXME: macos ld fails to link when the personality fun is internal; it
       # might work with lld so we might want to check the linker?
       unless @program.has_flag?("darwin") && mangled_name.starts_with?("__crystal_personality")

@@ -18,6 +18,8 @@ module Crystal
   ONCE_INIT              = "__crystal_once_init"
   ONCE                   = "__crystal_once"
 
+  INTERPRETER_RAISE_WB_NAME = "__crystal_interpreter_raise_without_backtrace"
+
   class Program
     def run(code, filename : String? = nil, debug = Debug::Default)
       parser = new_parser(code)
@@ -280,7 +282,9 @@ module Crystal
                    @single_module : Bool = false,
                    @debug = Debug::Default,
                    @frame_pointers : FramePointers = :auto,
-                   @llvm_context : LLVM::Context = LLVM::Context.new)
+                   @llvm_context : LLVM::Context = LLVM::Context.new,
+                   @repl_mode : Bool = false,
+                   @well_known_source : ASTNode? = nil)
       @abi = ABI.from(@program.target_machine)
       # LLVM::Context.register(@llvm_context, "main")
       @llvm_mod = configure_module(@llvm_context.new_module("main_module"))
@@ -336,6 +340,10 @@ module Crystal
       unless program.symbols.empty?
         symbol_table = define_symbol_table @llvm_mod, @llvm_typer
         symbol_table.initializer = llvm_type(@program.string).const_array(@symbol_table_values)
+        if state = @program.repl_state?
+          ensure_repl_symbol_table_slot
+          state.queue_symbol_table_update(SYMBOL_TABLE_SLOT_NAME, symbol_table.name)
+        end
       end
 
       program.const_slices.each_value do |info|
@@ -357,7 +365,7 @@ module Crystal
 
       # We need to define __crystal_malloc and __crystal_realloc as soon as possible,
       # to avoid some memory being allocated with plain malloc.
-      codegen_well_known_functions @node
+      codegen_well_known_functions(@well_known_source || @node)
 
       initialize_predefined_constants
 
@@ -411,6 +419,9 @@ module Crystal
         next if initializer.compile_time_value
         next unless initializer.simple?
 
+        # Redef stores happen in `codegen_assign(Path)`; skip simple-init pass.
+        next if (rs = @program.repl_state?) && rs.const_reinit_pending?(initializer)
+
         initialize_simple_const(initializer)
       end
     end
@@ -419,17 +430,51 @@ module Crystal
       CrystalLLVMBuilder.new builder, llvm_typer, c_printf_fun
     end
 
+    # No-op outside `@single_module`. AOT builds get `Internal`; JIT
+    # submissions get `LinkOnceODR` so later submissions can resolve
+    # the symbol against an earlier module's storage.
+    private def module_local_linkage(value : LLVM::ValueMethods) : Nil
+      return unless @single_module
+      value.linkage = @repl_mode ? LLVM::Linkage::LinkOnceODR : LLVM::Linkage::Internal
+    end
+
     def define_symbol_table(llvm_mod, llvm_typer)
-      llvm_mod.globals[SYMBOL_TABLE_NAME]? || begin
-        global = llvm_mod.globals.add llvm_typer.llvm_type(@program.string).array(@symbol_table_values.size), SYMBOL_TABLE_NAME
+      name = symbol_table_name
+      llvm_mod.globals[name]? || begin
+        global = llvm_mod.globals.add llvm_typer.llvm_type(@program.string).array(@symbol_table_values.size), name
         if llvm_mod != @main_mod
           global.linkage = LLVM::Linkage::External
-        elsif @single_module
-          global.linkage = LLVM::Linkage::Internal
+        else
+          module_local_linkage(global)
         end
         global.global_constant = true
         global
       end
+    end
+
+    SYMBOL_TABLE_SLOT_NAME = ":symbol_table:slot"
+
+    @repl_symbol_table_name : String?
+
+    # Memoised once per CodeGenVisitor in repl_mode. AOT keeps the
+    # plain SYMBOL_TABLE_NAME; REPL bumps a program-wide version
+    # counter on first read so each submission's table gets a unique
+    # `:vN` suffix.
+    private def symbol_table_name : String
+      return SYMBOL_TABLE_NAME unless state = @program.repl_state?
+      @repl_symbol_table_name ||= "#{SYMBOL_TABLE_NAME}:v#{state.symbol_table_version += 1}"
+    end
+
+    def ensure_repl_symbol_table_slot : LLVM::Value
+      @main_mod.globals[SYMBOL_TABLE_SLOT_NAME]? || allocate_repl_symbol_table_slot
+    end
+
+    private def allocate_repl_symbol_table_slot : LLVM::Value
+      ptr_ty = @main_llvm_context.void_pointer
+      slot = @main_mod.globals.add(ptr_ty, SYMBOL_TABLE_SLOT_NAME)
+      slot.linkage = LLVM::Linkage::LinkOnceODR
+      slot.initializer = ptr_ty.null
+      slot
     end
 
     def define_slice_constant(info : Program::ConstSliceInfo)
@@ -437,8 +482,8 @@ module Crystal
       global = @llvm_mod.globals.add(initializer.type, info.name)
       if @llvm_mod != @main_mod
         global.linkage = LLVM::Linkage::External
-      elsif @single_module
-        global.linkage = LLVM::Linkage::Internal
+      else
+        module_local_linkage(global)
       end
       global.global_constant = true
       global.initializer = initializer
@@ -495,6 +540,16 @@ module Crystal
         true
       end
 
+      def visit(node : ExpandableNode)
+        # `require` and similar carry their parsed body on `.expanded` after
+        # semantic. The unexpanded form is opaque to this walker, so descend
+        # explicitly when an expansion is available.
+        if expanded = node.expanded
+          expanded.accept self
+        end
+        false
+      end
+
       def visit(node : FunDef)
         case node.name
         when MALLOC_NAME, MALLOC_ATOMIC_NAME, REALLOC_NAME, RAISE_NAME,
@@ -538,6 +593,7 @@ module Crystal
 
       @unused_fun_defs.each do |node|
         codegen_fun node.real_name, node.external, @program, is_exported_fun: true
+        mark_repl_external_emitted(node.external)
       end
 
       env_dump = ENV["DUMP"]?
@@ -577,6 +633,13 @@ module Crystal
         return false
       end
 
+      if (rs = @program.repl_state?) && rs.external_emitted?(node.external.object_id)
+        # Already emitted in a prior submission. Emit a signature-only
+        # declaration so calls in this submission can be linked by ORC.
+        codegen_fun node.real_name, node.external, @program, is_exported_fun: false
+        return false
+      end
+
       unless node.external.dead?
         # Mark as dead so we don't generate it twice
         # (can happen with well known functions like __crystal_raise)
@@ -584,6 +647,7 @@ module Crystal
 
         if node.external.used?
           codegen_fun node.real_name, node.external, @program, is_exported_fun: true
+          mark_repl_external_emitted(node.external)
         else
           # If the fun is not invoked we codegen it at the end so
           # we don't have issues with constants being used before
@@ -774,8 +838,14 @@ module Crystal
         node.def.set_type node.return_type
       end
 
-      the_fun = codegen_fun fun_literal_name, node.def, context.type, fun_module_info: @main_module_info, is_fun_literal: true, is_closure: is_closure
-      the_fun = check_main_fun fun_literal_name, the_fun
+      # repl_mode: bypass codegen_fun when a prior multidispatch visit
+      # in this submission already emitted the body.
+      if @repl_mode && (existing = typed_fun?(@main_module_info.mod, fun_literal_name))
+        the_fun = check_main_fun fun_literal_name, existing
+      else
+        the_fun = codegen_fun fun_literal_name, node.def, context.type, fun_module_info: @main_module_info, is_fun_literal: true, is_closure: is_closure
+        the_fun = check_main_fun fun_literal_name, the_fun
+      end
 
       set_current_debug_location(node) if @debug.line_numbers?
       fun_ptr = cast_to_void_pointer(the_fun.func)
@@ -790,6 +860,14 @@ module Crystal
     end
 
     def fun_literal_name(node : ProcLiteral)
+      # Cache per-`def.object_id` so multidispatch re-visits of one
+      # proc literal resolve to the same emitted body.
+      state = @program.repl_state?
+      if state
+        cached = state.proc_literal_name?(node.def.object_id)
+        return cached if cached
+      end
+
       location = node.location.try &.expanded_location
       if location && (type = node.type?)
         proc_name = true
@@ -810,6 +888,8 @@ module Crystal
           fun_literal_name = "#{fun_literal_name}#{proc_count}"
         end
       end
+
+      state.record_proc_literal_name(node.def.object_id, fun_literal_name) if state
 
       fun_literal_name
     end
@@ -1188,11 +1268,31 @@ module Crystal
 
     def codegen_assign(target : Path, value, node)
       const = target.target_const.not_nil!
+      # Redef Assign reaches here as a re-entered Path; store directly.
+      if (rs = @program.repl_state?) && rs.const_reinit_pending?(const)
+        codegen_const_reinit(const, value)
+        return false
+      end
       if const.used? && !const.simple? && !const.compile_time_value
         initialize_const(const)
       end
       @last = llvm_nil
       false
+    end
+
+    def codegen_const_reinit(const : Const, value : ASTNode) : Nil
+      global = declare_const(const)
+      const_type = const.value.type
+      llvm_typ = llvm_type(const_type)
+      global.initializer = llvm_typ.null
+      request_value(value)
+      if const_type.passed_by_value?
+        @last = load llvm_typ, @last
+      end
+      unless const_type.nil_type? || const_type.void?
+        store @last, global
+      end
+      @last = llvm_nil
     end
 
     def codegen_assign(target, value, node)
@@ -1202,8 +1302,11 @@ module Crystal
       # or a class variable initializer
       unless target_type
         if target.is_a?(ClassVar)
-          # This is the case of a class var initializer
-          initialize_class_var(target)
+          if @repl_mode
+            codegen_repl_class_var_assign(target)
+          else
+            initialize_class_var(target)
+          end
         end
         return false
       end
@@ -1288,7 +1391,14 @@ module Crystal
         ptr.thread_local = true if thread_local
 
         if @llvm_mod == @main_mod
-          ptr.initializer = initial_value || llvm_type.null
+          state = @program.repl_state?
+          if state && state.global_emitted?(name)
+            # Already defined in an earlier submission's module. Leave as
+            # an extern declaration so ORC resolves the access cross-module.
+          else
+            ptr.initializer = initial_value || llvm_type.null
+            state.mark_global_emitted(name) if state
+          end
         else
           ptr.linkage = LLVM::Linkage::External
 
@@ -1599,14 +1709,7 @@ module Crystal
           location ? cast_to_void_pointer(build_string_constant(location.expanded_location.to_s)) : llvm_context.void_pointer.null,
         ] of LLVM::Value
 
-        if (rescue_block = @rescue_block)
-          invoke_out_block = new_block "invoke_out"
-          invoke func, call_args, invoke_out_block, rescue_block
-          position_at_end invoke_out_block
-        else
-          call func, call_args
-        end
-
+        call_or_invoke(func, call_args)
         unreachable
       else
         # fallback for stdlib before 1.16.2 when using a 1.16.2 or later compiler
@@ -1623,7 +1726,7 @@ module Crystal
       global = @main_mod.globals[map_name]?
       unless global
         global = @main_mod.globals.add(@main_llvm_typer.llvm_type(@program.string).array(@program.llvm_id.@ids.size), map_name)
-        global.linkage = LLVM::Linkage::Internal if @single_module
+        module_local_linkage(global)
         global.initializer = create_type_id_to_class_name_map
         global.global_constant = true
       end
@@ -1964,7 +2067,7 @@ module Crystal
       func = add_typed_fun(@main_mod, name, type)
       context.fun = func.func
       context.fun_type = type
-      context.fun.linkage = LLVM::Linkage::Internal if @single_module
+      module_local_linkage(context.fun)
       if needs_alloca
         new_entry_block
         yield func.func
@@ -2049,6 +2152,20 @@ module Crystal
 
     def new_blocks(*names)
       names.map { |name| new_block name }
+    end
+
+    # `invoke` through the active rescue block when one is in scope (the
+    # JIT REPL sets it for top-level user code); plain `call` otherwise.
+    # Returns the resulting value either way.
+    def call_or_invoke(func : LLVMTypedFunction, args : Array(LLVM::Value) = [] of LLVM::Value) : LLVM::Value
+      if (rescue_block = @rescue_block)
+        invoke_out_block = new_block "invoke_out"
+        result = invoke func, args, invoke_out_block, rescue_block
+        position_at_end invoke_out_block
+        result
+      else
+        call func, args
+      end
     end
 
     def alloca_vars(vars, obj = nil, args = nil, parent_context = nil, reset_nilable_vars = true)
@@ -2261,6 +2378,30 @@ module Crystal
       end
 
       pre_initialize_aggregate(type, struct_type, type_ptr)
+      mark_repl_instantiated(type) if @repl_mode && !type.passed_by_value?
+      @last
+    end
+
+    private def mark_repl_external_emitted(external : External) : Nil
+      @program.repl_state?.try &.mark_external_emitted(external.object_id)
+    end
+
+    # `store 1` into `@<Type>:instantiated` so `Session` can refuse a
+    # layout-changing redef when any instance is live.
+    private def mark_repl_instantiated(type : Crystal::Type) : Nil
+      flag_name = repl_instantiated_flag_name(type)
+      global = @main_mod.globals[flag_name]? || begin
+        g = @main_mod.globals.add(@main_llvm_context.int8, flag_name)
+        g.linkage = LLVM::Linkage::LinkOnceODR
+        g.initializer = @main_llvm_context.int8.const_int(0)
+        @program.repl_state?.try &.register_instantiated_flag(flag_name)
+        g
+      end
+      store @main_llvm_context.int8.const_int(1), global
+    end
+
+    def repl_instantiated_flag_name(type : Crystal::Type) : String
+      "@\"#{type.llvm_name}:instantiated\""
     end
 
     def pre_initialize_aggregate(type, struct_type, ptr)

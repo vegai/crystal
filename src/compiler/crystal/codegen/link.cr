@@ -271,10 +271,27 @@ module Crystal
 
     PKG_CONFIG_PATH = Process.find_executable("pkg-config")
 
+    # Per-Program cache of `pkg-config` resolutions keyed by
+    # `(module-name, static?)`. Skips re-forking `pkg-config` once per
+    # `@[Link]` annotation within one compile.
+    @pkg_config_cache = {} of {String, Bool} => String?
+
     # Returns the result of running `pkg-config mod` but returns nil if
     # pkg-config is not installed, or the module does not exist.
     private def pkg_config(mod, static = false) : String?
       return unless pkg_config_path = PKG_CONFIG_PATH
+
+      key = {mod, static}
+      if @pkg_config_cache.has_key?(key)
+        return @pkg_config_cache[key]
+      end
+
+      result = pkg_config_uncached(pkg_config_path, mod, static)
+      @pkg_config_cache[key] = result
+      result
+    end
+
+    private def pkg_config_uncached(pkg_config_path : String, mod : String, static : Bool) : String?
       return unless (Process.run(pkg_config_path, {mod}).success? rescue nil)
 
       args = ["--libs"]

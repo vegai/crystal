@@ -30,6 +30,7 @@ module Crystal
 
     def initialize(program)
       @ids = {} of Type => {Int32, Int32}
+      @by_id = {} of Int32 => Type
       @id_to_metaclass = {} of Int32 => Int32
       @next_id = 0
       assign_id(program.object)
@@ -57,6 +58,14 @@ module Crystal
 
     def min_max_type_id(type)
       @ids[type]?
+    end
+
+    # Reverse of `type_id`: returns the Type whose own id matches *id*,
+    # or nil if no type has been assigned that id yet. The JIT REPL hits
+    # this on every metaclass/instance pretty-print (see jit/value.cr),
+    # so keep the reverse map populated during AOT id assignment.
+    def type_from_id(id : Int32) : Type?
+      @by_id[id]?
     end
 
     private def assign_id(type)
@@ -161,6 +170,7 @@ module Crystal
 
     private def put_id(type, min, max)
       @ids[type] = {min, max}
+      @by_id[max] = type
     end
 
     private def next_id

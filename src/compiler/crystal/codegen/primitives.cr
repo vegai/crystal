@@ -81,6 +81,8 @@ class Crystal::CodeGenVisitor
               cast_to_void_pointer void_ptr_throwinfo
             when "va_arg"
               codegen_va_arg call, node, target_def, call_args
+            when "interpreter_raise_without_backtrace"
+              codegen_primitive_interpreter_raise_without_backtrace node, target_def, call_args
             else
               raise "BUG: unhandled primitive in codegen: #{node.name}"
             end
@@ -1003,10 +1005,21 @@ class Crystal::CodeGenVisitor
 
   def codegen_primitive_symbol_to_s(node, target_def, call_args)
     string = llvm_type(@program.string)
-    table_type = string.array(@symbol_table_values.size)
-    table = define_symbol_table(@llvm_mod, @llvm_typer)
-    string_ptr = gep table_type, table, int(0), call_args[0]
-    load(string, string_ptr)
+    if @repl_mode
+      # Load through `:symbol_table:slot` so symbols added in later
+      # submissions are still resolvable; the GEP uses `ptr` instead of
+      # the array type so the table's length doesn't leak into the IR.
+      slot = ensure_repl_symbol_table_slot
+      ptr_ty = @llvm_context.void_pointer
+      table_ptr = load(ptr_ty, slot)
+      elem_addr = gep(ptr_ty, table_ptr, call_args[0])
+      load(string, elem_addr)
+    else
+      table_type = string.array(@symbol_table_values.size)
+      table = define_symbol_table(@llvm_mod, @llvm_typer)
+      string_ptr = gep table_type, table, int(0), call_args[0]
+      load(string, string_ptr)
+    end
   end
 
   def codegen_primitive_class(node, target_def, call_args)
@@ -1321,6 +1334,20 @@ class Crystal::CodeGenVisitor
   def codegen_va_arg(call, node, target_def, call_args)
     ptr = call_args.first
     builder.va_arg(ptr, llvm_type(node.type))
+  end
+
+  # JIT lowering of the bytecode-VM `interpreter_raise_without_backtrace`
+  # primitive: tail-call the runtime helper that wraps Exception in
+  # LibUnwind::Exception and calls `__crystal_raise`.
+  def codegen_primitive_interpreter_raise_without_backtrace(node, target_def, call_args)
+    raise_fun = main_fun(INTERPRETER_RAISE_WB_NAME)
+    exception = call_args.first
+    {% if LibLLVM::IS_LT_150 %}
+      exception = bit_cast(exception, llvm_context.void_pointer)
+    {% end %}
+    call raise_fun, [exception] of LLVM::Value
+    builder.unreachable
+    llvm_nil
   end
 
   def check_atomic_call(call, target_def)

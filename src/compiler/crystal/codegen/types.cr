@@ -207,6 +207,12 @@ module Crystal
     @compile_time_value : (Int128 | Int16 | Int32 | Int64 | Int8 | UInt128 | UInt16 | UInt32 | UInt64 | UInt8 | Bool | Char | Nil)
     @computed_compile_time_value = false
 
+    # Redef invalidates the cached compile-time answer.
+    def reset_compile_time_value : Nil
+      @computed_compile_time_value = false
+      @compile_time_value = nil
+    end
+
     # Returns a value if this constant's value can be evaluated at
     # compile time (things like `1 + 2` and such). Returns nil otherwise.
     def compile_time_value

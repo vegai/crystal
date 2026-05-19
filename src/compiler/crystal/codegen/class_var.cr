@@ -12,12 +12,24 @@ class Crystal::CodeGenVisitor
     unless global
       main_llvm_type = @main_llvm_typer.llvm_type(class_var.type)
       global = @main_mod.globals.add(main_llvm_type, global_name)
-      global.linkage = LLVM::Linkage::Internal if @single_module
+      state = @program.repl_state?
       global.thread_local = true if class_var.thread_local?
-      if !global.initializer && type.includes_type?(@program.nil_type)
-        global.initializer = main_llvm_type.null
+      # If a prior submission already emitted the global, leave this as
+      # an extern declaration; ORC resolves to the prior LinkOnceODR.
+      unless state && state.global_emitted?(global_name)
+        module_local_linkage(global)
+        if !global.initializer && type.includes_type?(@program.nil_type)
+          global.initializer = main_llvm_type.null
+        end
+        state.mark_global_emitted(global_name) if state
       end
-
+      # Register as a GC root in REPL mode so Boehm traces any heap
+      # pointer the class var holds; JIT-mapped pages aren't scanned by
+      # default and a stored Mutex / Channel / Proc would otherwise be
+      # GC'd while still pointed at from the global.
+      if state && type_may_hold_gc_pointer?(class_var.type)
+        state.record_root_global(global_name, @main_llvm_typer.size_of(main_llvm_type).to_i32)
+      end
       declare_class_var_debug_info(global, class_var) if @debug.variables?
     end
     global
@@ -29,8 +41,9 @@ class Crystal::CodeGenVisitor
     unless initialized_flag
       initialized_flag = @main_mod.globals.add(@main_llvm_context.int1, initialized_flag_name)
       initialized_flag.initializer = @main_llvm_context.int1.const_int(0)
-      initialized_flag.linkage = LLVM::Linkage::Internal if @single_module
+      module_local_linkage(initialized_flag)
       initialized_flag.thread_local = true if class_var.thread_local?
+      @program.repl_state?.try &.mark_global_emitted(initialized_flag_name)
     end
     initialized_flag
   end
@@ -72,6 +85,35 @@ class Crystal::CodeGenVisitor
 
   def initialize_class_var(class_var : ClassVar)
     initialize_class_var(class_var.var)
+  end
+
+  # Dispatches a `@@x = expr` (or lifter-introduced `@@__repl_*`) under
+  # repl_mode. New `@@__repl_*` storage skips eager init (handled lazily
+  # at read); a reassignment to existing storage emits an unconditional
+  # store so the once-gated init doesn't silently no-op the new value.
+  def codegen_repl_class_var_assign(target : ClassVar) : Nil
+    is_repl_lifted = target.name.starts_with?("@@__repl_")
+    is_reassign = is_repl_lifted && (rs = @program.repl_state?) && rs.global_emitted?(class_var_global_name(target.var))
+    return if is_repl_lifted && !is_reassign
+
+    initialize_class_var(target)
+    return unless is_reassign
+
+    class_var_meta : MetaTypeVar = target.var
+    cv_initializer = class_var_meta.initializer
+    return unless cv_initializer
+
+    init_node = cv_initializer.node
+    class_var_type = class_var_meta.type
+    with_cloned_context do
+      context.type = class_var_meta.owner
+      context.vars = LLVMVars.new
+      alloca_vars cv_initializer.meta_vars
+      request_value(init_node)
+      ptr = get_class_var_global(class_var_meta)
+      ptr = ensure_class_var_in_this_module(ptr, class_var_meta)
+      assign ptr, class_var_type, init_node.type? || class_var_type, @last
+    end
   end
 
   def initialize_class_var(class_var : MetaTypeVar)
@@ -119,6 +161,8 @@ class Crystal::CodeGenVisitor
     init_function_name = "~#{class_var_global_initialized_name(class_var)}"
 
     typed_fun?(@main_mod, init_function_name) || begin
+      # Must snapshot before `declare_class_var` adds the name to the set.
+      already_emitted_global = (rs = @program.repl_state?) && rs.global_emitted?(class_var_global_name(class_var))
       global = declare_class_var(class_var)
 
       discard = false
@@ -133,20 +177,31 @@ class Crystal::CodeGenVisitor
             # Start with fresh variables
             context.vars = LLVMVars.new
 
-            alloca_vars initializer.meta_vars
+            # Class-var initializer locals carry `@context == @program`, so
+            # pass `@program` as the closure owner; matches the bytecode
+            # interpreter's `compile_def(..., closure_owner: program)`.
+            alloca_vars initializer.meta_vars, @program
 
             request_value(node)
 
             node_type = node.type
 
             if node_type.nil_type? && !type.nil_type?
-              global.initializer = llvm_type(type).null
+              global.initializer = llvm_type(type).null unless already_emitted_global
               discard = true
             elsif @last.constant? && (type.is_a?(PrimitiveType) || type.is_a?(EnumType))
-              global.initializer = @last
-              discard = type.is_a?(EnumType) || node.simple_literal?
+              global.initializer = @last unless already_emitted_global
+              if @repl_mode && class_var.thread_local?
+                # ORC LLJIT skips the TLS static-init template, so storage
+                # stays zeroed; emit an explicit runtime store gated by
+                # `__crystal_once` instead.
+                assign global, type, node.type, @last
+                discard = false
+              else
+                discard = type.is_a?(EnumType) || node.simple_literal?
+              end
             else
-              global.initializer = llvm_type(type).null
+              global.initializer = llvm_type(type).null unless already_emitted_global
               assign global, type, node.type, @last
             end
 
@@ -202,7 +257,9 @@ class Crystal::CodeGenVisitor
     func = create_read_class_var_function(class_var, initializer)
     if func
       func = check_main_fun func.func.name, func
-      call func
+      # Lazy class-var init can raise; `call_or_invoke` routes through
+      # the active rescue_block when one is in scope (REPL top-level).
+      call_or_invoke(func)
     else
       get_class_var_global(class_var)
     end

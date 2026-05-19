@@ -890,6 +890,13 @@ class Crystal::TopLevelVisitor < Crystal::SemanticVisitor
     scope = lookup_type_def_scope(target, target)
     type = scope.types[name]?
     if type
+      # JIT REPL: const redef keeps `Const` identity so prior
+      # `target_const` references stay live; the queued reinit
+      # overwrites the global before the next read.
+      if (rs = @program.repl_state?) && type.is_a?(Const)
+        redefine_const(type, value, target, rs)
+        return
+      end
       target.raise "already initialized constant #{type}"
     end
 
@@ -907,6 +914,15 @@ class Crystal::TopLevelVisitor < Crystal::SemanticVisitor
     scope.types[name] = const
 
     target.target_const = const
+  end
+
+  private def redefine_const(type : Const, value : ASTNode, target : Path, rs : ReplState) : Nil
+    type.value = value
+    type.cleaned_up = false
+    type.visited = false
+    type.reset_compile_time_value
+    rs.queue_const_reinit(type)
+    target.target_const = type
   end
 
   def type_assign(target, value, node)

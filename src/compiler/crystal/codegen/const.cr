@@ -40,28 +40,79 @@ class Crystal::CodeGenVisitor
     end
   end
 
+  # Skip GC-root registration for const/class-var types that can't hold
+  # a heap pointer; the bounded `MAX_ROOT_SETS` table fills up otherwise.
+  private def type_may_hold_gc_pointer?(type : Crystal::Type) : Bool
+    case type
+    when Crystal::IntegerType, Crystal::FloatType, Crystal::BoolType,
+         Crystal::CharType, Crystal::SymbolType, Crystal::EnumType,
+         Crystal::NilType, Crystal::NoReturnType
+      false
+    else
+      true
+    end
+  end
+
   def declare_const(const)
     global_name = const.llvm_name
     global = @main_mod.globals[global_name]?
     unless global
-      global = @main_mod.globals.add(@main_llvm_typer.llvm_type(const.value.type), global_name)
+      llvm_typ = @main_llvm_typer.llvm_type(const.value.type)
+      global = @main_mod.globals.add(llvm_typ, global_name)
 
       type = const.value.type
       # TODO: LLVM < 9.0.0 has a bug that prevents us from having internal globals of type i128 or u128:
       # https://bugs.llvm.org/show_bug.cgi?id=42932
       # so we just use global in that case.
       {% if compare_versions(Crystal::LLVM_VERSION, "9.0.0") < 0 %}
-        if @single_module && !(type.is_a?(IntegerType) && (type.kind.i128? || type.kind.u128?))
-          global.linkage = LLVM::Linkage::Internal
+        unless type.is_a?(IntegerType) && (type.kind.i128? || type.kind.u128?)
+          module_local_linkage(global)
         end
       {% else %}
-        global.linkage = LLVM::Linkage::Internal if @single_module
+        module_local_linkage(global)
       {% end %}
+
+      if state = @program.repl_state?
+        state.mark_const_global_emitted(global_name)
+        if type_may_hold_gc_pointer?(type)
+          state.record_root_global(global_name, @main_llvm_typer.size_of(llvm_typ).to_i32)
+        end
+
+        # LinkOnceODR needs an initializer; seed with the literal value
+        # when available, otherwise null. `initialize_simple_const` and
+        # the init-function overwrite later for consts they handle.
+        unless global.initializer
+          const_init_value = llvm_constant_from_compile_time_value(const)
+          global.initializer = const_init_value || llvm_typ.null
+        end
+      end
 
       declare_const_debug_info(global, const) if @debug.variables?
     end
 
     global
+  end
+
+  # Returns an LLVM constant for `const` when its value is a simple
+  # compile-time literal, or `nil` otherwise. Mirrors the
+  # `compile_time_value` case branches in `read_const`.
+  private def llvm_constant_from_compile_time_value(const) : LLVM::Value?
+    case value = const.compile_time_value
+    when Bool    then int1(value ? 1 : 0)
+    when Char    then int32(value.ord)
+    when Int8    then int8(value)
+    when Int16   then int16(value)
+    when Int32   then int32(value)
+    when Int64   then int64(value)
+    when Int128  then int128(value)
+    when UInt8   then int8(value)
+    when UInt16  then int16(value)
+    when UInt32  then int32(value)
+    when UInt64  then int64(value)
+    when UInt128 then int128(value)
+    else
+      nil
+    end
   end
 
   private def declare_const_debug_info(global, const)
@@ -94,7 +145,7 @@ class Crystal::CodeGenVisitor
     unless initialized_flag
       initialized_flag = @main_mod.globals.add(@main_llvm_context.int1, initialized_flag_name)
       initialized_flag.initializer = @main_llvm_context.int1.const_int(0)
-      initialized_flag.linkage = LLVM::Linkage::Internal if @single_module
+      module_local_linkage(initialized_flag)
     end
     initialized_flag
   end
@@ -115,7 +166,9 @@ class Crystal::CodeGenVisitor
     end
 
     global.initializer = @last
-    global.global_constant = true
+    # repl_mode keeps the global writable so a later `CONST = new_value`
+    # can rewrite the storage at runtime.
+    global.global_constant = true unless @repl_mode
 
     if const_type.is_a?(PrimitiveType) || const_type.is_a?(EnumType)
       const.initializer = @last
@@ -198,7 +251,7 @@ class Crystal::CodeGenVisitor
 
           if @last.constant?
             global.initializer = @last
-            global.global_constant = true
+            global.global_constant = true unless @repl_mode
 
             if const_type.is_a?(PrimitiveType) || const_type.is_a?(EnumType)
               const.initializer = @last
@@ -217,6 +270,15 @@ class Crystal::CodeGenVisitor
   end
 
   def read_const(const, node)
+    # repl_mode reads through the global so a later const redef
+    # reaches callers compiled before the redef.
+    if @repl_mode
+      set_current_debug_location node if @debug.line_numbers?
+      last = read_const_pointer(const)
+      @last = to_lhs last, const.value.type
+      return
+    end
+
     # We inline literal constants. Otherwise we use an LLVM const global.
     @last =
       case value = const.compile_time_value

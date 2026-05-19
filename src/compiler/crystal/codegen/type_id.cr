@@ -70,7 +70,7 @@ class Crystal::CodeGenVisitor
     global = @main_mod.globals[type_id_name]?
     unless global
       global = @main_mod.globals.add(@main_llvm_context.int32, type_id_name)
-      global.linkage = LLVM::Linkage::Internal if @single_module
+      module_local_linkage(global)
       global.initializer = @main_llvm_context.int32.const_int(@program.llvm_id.type_id(type))
       global.global_constant = true
     end

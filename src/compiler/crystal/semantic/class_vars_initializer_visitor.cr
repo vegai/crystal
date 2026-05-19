@@ -129,7 +129,10 @@ module Crystal
       when TypeDeclaration
         node.var.is_a?(ClassVar)
       when FileNode, Expressions, ClassDef, ModuleDef, EnumDef, Alias, Include, Extend, LibDef, Def, Macro, Call, Require,
-           MacroExpression, MacroIf, MacroFor, VisibilityModifier
+           MacroExpression, MacroIf, MacroFor, VisibilityModifier,
+           # Recurse into rescue groups so a class-var assign nested in
+           # an ExceptionHandler still gets type-checked here.
+           ExceptionHandler, Rescue
         true
       else
         false

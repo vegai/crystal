@@ -191,19 +191,7 @@ module Crystal
       when Const
         if !type.value.type? && !type.visited?
           type.visited = true
-
-          meta_vars = MetaVars.new
-          const_def = Def.new("const", [] of Arg)
-          type_visitor = MainVisitor.new(@program, meta_vars, const_def)
-          type_visitor.current_type = type.namespace
-          type_visitor.inside_constant = true
-          type.value.accept type_visitor
-
-          type.fake_def = const_def
-          type.visitor = self
-          type.used = true
-
-          program.const_initializers << type
+          visit_const_value(type)
         end
 
         node.target_const = type
@@ -871,9 +859,30 @@ module Crystal
     end
 
     def type_assign(target : Path, value, node)
+      # Force type-check now so the codegen reinit has a typed body;
+      # the normal lazy trigger via `visit(Path)` would miss a redef
+      # submission that never reads the const.
+      if (rs = @program.repl_state?) && (const = target.target_const) && rs.const_reinit_pending?(const)
+        visit_const_value(const)
+      end
+
       target.bind_to value
       node.type = @program.nil
       false
+    end
+
+    private def visit_const_value(const : Const) : Nil
+      meta_vars = MetaVars.new
+      const_def = Crystal::Def.new("const", [] of Crystal::Arg)
+      type_visitor = MainVisitor.new(@program, meta_vars, const_def)
+      type_visitor.current_type = const.namespace
+      type_visitor.inside_constant = true
+      const.value.accept(type_visitor)
+
+      const.fake_def = const_def
+      const.visitor = self
+      const.used = true
+      @program.const_initializers << const unless @program.const_initializers.includes?(const)
     end
 
     def type_assign(target : Global, value, node)
