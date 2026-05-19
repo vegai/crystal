@@ -207,7 +207,10 @@ module Crystal
     @compile_time_value : (Int128 | Int16 | Int32 | Int64 | Int8 | UInt128 | UInt16 | UInt32 | UInt64 | UInt8 | Bool | Char | Nil)
     @computed_compile_time_value = false
 
-    # Redef invalidates the cached compile-time answer.
+    # JIT REPL only: const redef in `top_level_visitor.cr#redefine_const`
+    # invalidates the cached compile-time answer. Defined here (and not
+    # in a JIT extension file) because the call site is reachable from
+    # the AOT-built `TopLevelVisitor`; under AOT the branch never fires.
     def reset_compile_time_value : Nil
       @computed_compile_time_value = false
       @compile_time_value = nil
