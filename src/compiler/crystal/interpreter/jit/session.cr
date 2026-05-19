@@ -555,6 +555,18 @@ module Crystal::JIT
       end
     end
 
+    # Partitions `-L<dir>` and `-l<name>` tokens out of a stream and
+    # appends them onto the two accumulators. Other tokens are ignored.
+    private def partition_lib_link_tokens(tokens, extra_search_paths : Array(String), libnames : Array(String)) : Nil
+      tokens.each do |token|
+        if token.starts_with?("-L")
+          extra_search_paths << token[2..]
+        elsif token.starts_with?("-l")
+          libnames << token[2..]
+        end
+      end
+    end
+
     private def load_libraries_via_lib_flags : Nil
       lib_flags = @program.lib_flags
       lib_flags = lib_flags.gsub(/`(.*?)`/) { `#{$1}`.chomp }
@@ -565,13 +577,7 @@ module Crystal::JIT
 
       extra_search_paths = [] of String
       libnames = [] of String
-      args.each do |arg|
-        if arg.starts_with?("-L")
-          extra_search_paths << arg[2..]
-        elsif arg.starts_with?("-l")
-          libnames << arg[2..]
-        end
-      end
+      partition_lib_link_tokens(args, extra_search_paths, libnames)
 
       search_paths = extra_search_paths + Crystal::Loader.default_search_paths
       loader = Crystal::Loader.new(search_paths)
@@ -588,13 +594,7 @@ module Crystal::JIT
       extra_search_paths = [] of String
       @program.link_annotations.each do |ann|
         if ldflags = ann.ldflags
-          ldflags.split do |token|
-            if token.starts_with?("-L")
-              extra_search_paths << token[2..]
-            elsif token.starts_with?("-l")
-              libnames << token[2..]
-            end
-          end
+          partition_lib_link_tokens(ldflags.split, extra_search_paths, libnames)
         end
         if name = ann.lib
           libnames << name
