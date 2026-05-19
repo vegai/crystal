@@ -864,7 +864,8 @@ module Crystal
     def fun_literal_name(node : ProcLiteral)
       # Cache per-`def.object_id` so multidispatch re-visits of one
       # proc literal resolve to the same emitted body.
-      if cached = @repl_hooks.proc_literal_name?(node.def.object_id)
+      def_id = node.def.object_id
+      if cached = @repl_hooks.proc_literal_name?(def_id)
         return cached
       end
 
@@ -889,7 +890,7 @@ module Crystal
         end
       end
 
-      @repl_hooks.record_proc_literal_name(node.def.object_id, fun_literal_name)
+      @repl_hooks.record_proc_literal_name(def_id, fun_literal_name)
 
       fun_literal_name
     end
