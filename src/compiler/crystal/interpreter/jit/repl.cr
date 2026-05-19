@@ -1,5 +1,7 @@
 module Crystal::JIT
   class Repl
+    include Crystal::ReplLike
+
     property prelude : String = "prelude"
     getter program : Program
     getter context : Context

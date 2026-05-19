@@ -1,4 +1,17 @@
+# Shared contract between `Crystal::Repl` (bytecode backend) and
+# `Crystal::JIT::Repl` (JIT backend). `command/repl.cr` parses options
+# against this interface so neither backend can silently drop one of
+# the four methods the CLI relies on.
+module Crystal::ReplLike
+  abstract def program : Program
+  abstract def prelude=(prelude : String)
+  abstract def run
+  abstract def run_file(filename : String, argv : Array(String))
+end
+
 class Crystal::Repl
+  include Crystal::ReplLike
+
   property prelude : String = "prelude"
   getter program : Program
   getter context : Context
@@ -56,7 +69,7 @@ class Crystal::Repl
     return EvalResult.new(value: value, warnings: parser.warnings)
   end
 
-  def run_file(filename, argv)
+  def run_file(filename : String, argv : Array(String))
     @interpreter.argv = argv
 
     prelude_node = parse_prelude

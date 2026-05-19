@@ -64,7 +64,7 @@ class Crystal::Command
 
   # Shared option parser for both backends. Yields the `OptionParser` after
   # adding the common flags so each caller can layer backend-specific ones.
-  private def parse_repl_opts(repl : Repl | Crystal::JIT::Repl, banner : String, &) : Nil
+  private def parse_repl_opts(repl : Crystal::ReplLike, banner : String, &) : Nil
     parse_with_crystal_opts do |opts|
       opts.banner = banner
 
