@@ -139,7 +139,7 @@ describe "Code gen: closure" do
       CRYSTAL
   end
 
-  it "codegens closure with nested context without new closured vars" do
+  it "codegens closure with nested context without new closured vars across two yielding methods" do
     run(<<-CRYSTAL).to_i.should eq(2)
       def foo
         yield
