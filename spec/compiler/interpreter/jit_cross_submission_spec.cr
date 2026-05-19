@@ -4,12 +4,9 @@ require "./spec_helper"
 # Drives multiple submissions on one Repl to exercise cross-submission
 # defs, class vars, and `@[ThreadLocal]` class vars.
 # Opt-in via CRYSTAL_JIT_CROSS_SUBMISSION_SPEC=1.
-RUN_JIT_CROSS_SUBMISSION_SPEC = ENV["CRYSTAL_JIT_CROSS_SUBMISSION_SPEC"]? == "1"
-
 describe "Crystal::JIT::Repl cross-submission" do
   it "persists defs, class vars, and TLS class vars across submissions" do
-    pending! "JIT backend only", file: __FILE__, line: __LINE__ unless JIT_BACKEND
-    pending! "opt in via CRYSTAL_JIT_CROSS_SUBMISSION_SPEC=1", file: __FILE__, line: __LINE__ unless RUN_JIT_CROSS_SUBMISSION_SPEC
+    jit_opt_in!("CRYSTAL_JIT_CROSS_SUBMISSION_SPEC")
 
     repl = Crystal::JIT::Repl.new
 

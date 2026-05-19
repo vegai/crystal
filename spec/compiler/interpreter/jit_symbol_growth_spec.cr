@@ -4,12 +4,9 @@ require "./spec_helper"
 # Verifies symbols introduced in a later submission resolve via the
 # versioned `:symbol_table:vN` + `:symbol_table:slot` path.
 # Opt-in via CRYSTAL_JIT_SYMBOL_GROWTH_SPEC=1.
-RUN_JIT_SYMBOL_GROWTH_SPEC = ENV["CRYSTAL_JIT_SYMBOL_GROWTH_SPEC"]? == "1"
-
 describe "Crystal::JIT::Repl symbol table growth" do
   it "resolves a symbol literal introduced in a later submission" do
-    pending! "JIT backend only", file: __FILE__, line: __LINE__ unless JIT_BACKEND
-    pending! "opt in via CRYSTAL_JIT_SYMBOL_GROWTH_SPEC=1", file: __FILE__, line: __LINE__ unless RUN_JIT_SYMBOL_GROWTH_SPEC
+    jit_opt_in!("CRYSTAL_JIT_SYMBOL_GROWTH_SPEC")
 
     repl = Crystal::JIT::Repl.new
 

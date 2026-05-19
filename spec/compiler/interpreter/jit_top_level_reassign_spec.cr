@@ -4,12 +4,9 @@ require "./spec_helper"
 # Verifies top-level `x = value` reassignment across submissions (lifted
 # to `@@__repl_x` and emitted as a runtime store under repl_mode).
 # Opt-in via CRYSTAL_JIT_TOP_LEVEL_REASSIGN_SPEC=1.
-RUN_JIT_TOP_LEVEL_REASSIGN_SPEC = ENV["CRYSTAL_JIT_TOP_LEVEL_REASSIGN_SPEC"]? == "1"
-
 describe "Crystal::JIT::Repl top-level reassign" do
   it "reassigns top-level locals across submissions and surfaces the new value" do
-    pending! "JIT backend only", file: __FILE__, line: __LINE__ unless JIT_BACKEND
-    pending! "opt in via CRYSTAL_JIT_TOP_LEVEL_REASSIGN_SPEC=1", file: __FILE__, line: __LINE__ unless RUN_JIT_TOP_LEVEL_REASSIGN_SPEC
+    jit_opt_in!("CRYSTAL_JIT_TOP_LEVEL_REASSIGN_SPEC")
 
     repl = Crystal::JIT::Repl.new
 

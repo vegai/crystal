@@ -4,12 +4,9 @@ require "./spec_helper"
 # Exercises the layout-change refusal path: a class redef that would
 # change ivar layout is refused once an instance has been allocated.
 # Opt-in via CRYSTAL_JIT_LAYOUT_REFUSAL_SPEC=1.
-RUN_JIT_LAYOUT_REFUSAL_SPEC = ENV["CRYSTAL_JIT_LAYOUT_REFUSAL_SPEC"]? == "1"
-
 describe "Crystal::JIT::Repl layout change refusal" do
   it "refuses to add a new instance variable to an instantiated class" do
-    pending! "JIT backend only", file: __FILE__, line: __LINE__ unless JIT_BACKEND
-    pending! "opt in via CRYSTAL_JIT_LAYOUT_REFUSAL_SPEC=1", file: __FILE__, line: __LINE__ unless RUN_JIT_LAYOUT_REFUSAL_SPEC
+    jit_opt_in!("CRYSTAL_JIT_LAYOUT_REFUSAL_SPEC")
 
     repl = Crystal::JIT::Repl.new
     repl.run_code("class LayoutRefuseFoo; @x : Int32 = 0; end")

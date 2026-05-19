@@ -4,6 +4,13 @@ require "compiler/crystal/interpreter/*"
 
 JIT_BACKEND = ENV["CRYSTAL_INTERP_BACKEND"]? == "jit"
 
+# Shared gate for opt-in JIT specs. `pending!`'s `file`/`line` defaults
+# are evaluated at the call site, so the report points at the caller.
+def jit_opt_in!(env_var : String, file = __FILE__, line = __LINE__) : Nil
+  pending! "JIT backend only", file: file, line: line unless JIT_BACKEND
+  pending! "opt in via #{env_var}=1", file: file, line: line unless ENV[env_var]? == "1"
+end
+
 # JIT-spec-only support; see `Crystal::JIT::SpecSupport`.
 module Crystal::JIT::SpecSupport
   # Stubs for runtime helpers the `primitives` prelude omits. See

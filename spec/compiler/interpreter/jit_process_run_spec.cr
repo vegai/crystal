@@ -5,12 +5,9 @@ require "./spec_helper"
 # host-reaper external_reaper bridge (no infinite wait on the JIT-side
 # `@channel.receive`).
 # Opt-in via CRYSTAL_JIT_PROCESS_RUN_SPEC=1.
-RUN_JIT_PROCESS_RUN_SPEC = ENV["CRYSTAL_JIT_PROCESS_RUN_SPEC"]? == "1"
-
 describe "Crystal::JIT::Repl Process.run from user code" do
   it "backtick from JIT-emitted user code completes (no infinite hang)" do
-    pending! "JIT only", file: __FILE__, line: __LINE__ unless JIT_BACKEND
-    pending! "opt in via CRYSTAL_JIT_PROCESS_RUN_SPEC=1", file: __FILE__, line: __LINE__ unless RUN_JIT_PROCESS_RUN_SPEC
+    jit_opt_in!("CRYSTAL_JIT_PROCESS_RUN_SPEC")
 
     crystal_bin = File.expand_path("./bin/crystal", Dir.current)
     output = IO::Memory.new

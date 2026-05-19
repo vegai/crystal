@@ -3,12 +3,9 @@ require "./spec_helper"
 
 # Exercises method redef across submissions via the versioned-body /
 # dispatch-slot path. Opt-in via CRYSTAL_JIT_HOT_REDEF_SPEC=1.
-RUN_JIT_HOT_REDEF_SPEC = ENV["CRYSTAL_JIT_HOT_REDEF_SPEC"]? == "1"
-
 describe "Crystal::JIT::Repl method redef" do
   it "redefines a top-level method three times across submissions, including a redef-only submission whose new body is reached only by a previously-compiled caller" do
-    pending! "JIT backend only", file: __FILE__, line: __LINE__ unless JIT_BACKEND
-    pending! "opt in via CRYSTAL_JIT_HOT_REDEF_SPEC=1", file: __FILE__, line: __LINE__ unless RUN_JIT_HOT_REDEF_SPEC
+    jit_opt_in!("CRYSTAL_JIT_HOT_REDEF_SPEC")
 
     repl = Crystal::JIT::Repl.new
 

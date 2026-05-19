@@ -4,12 +4,9 @@ require "./spec_helper"
 # Exercises `Crystal::JIT::Repl#run_eval_source` (the
 # `crystal i --backend=jit -e SOURCE` one-shot path).
 # Opt-in via CRYSTAL_JIT_EVAL_SOURCE_SPEC=1.
-RUN_JIT_EVAL_SOURCE_SPEC = ENV["CRYSTAL_JIT_EVAL_SOURCE_SPEC"]? == "1"
-
 describe "Crystal::JIT::Repl run_eval_source" do
   it "runs a one-shot evaluation and returns 0 on success" do
-    pending! "JIT backend only", file: __FILE__, line: __LINE__ unless JIT_BACKEND
-    pending! "opt in via CRYSTAL_JIT_EVAL_SOURCE_SPEC=1", file: __FILE__, line: __LINE__ unless RUN_JIT_EVAL_SOURCE_SPEC
+    jit_opt_in!("CRYSTAL_JIT_EVAL_SOURCE_SPEC")
 
     repl = Crystal::JIT::Repl.new
 

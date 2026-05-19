@@ -4,12 +4,9 @@ require "./spec_helper"
 # Exercises the JIT-internal begin/rescue wrap around bare-expression
 # submissions: a raising user expression must not crash the host.
 # Opt-in via CRYSTAL_JIT_RUNTIME_RESCUE_SPEC=1.
-RUN_JIT_RUNTIME_RESCUE_SPEC = ENV["CRYSTAL_JIT_RUNTIME_RESCUE_SPEC"]? == "1"
-
 describe "Crystal::JIT::Repl run_snippet runtime rescue" do
   it "catches an unhandled exception in a bare-expression submission and keeps the REPL alive" do
-    pending! "JIT backend only", file: __FILE__, line: __LINE__ unless JIT_BACKEND
-    pending! "opt in via CRYSTAL_JIT_RUNTIME_RESCUE_SPEC=1", file: __FILE__, line: __LINE__ unless RUN_JIT_RUNTIME_RESCUE_SPEC
+    jit_opt_in!("CRYSTAL_JIT_RUNTIME_RESCUE_SPEC")
 
     repl = Crystal::JIT::Repl.new
 

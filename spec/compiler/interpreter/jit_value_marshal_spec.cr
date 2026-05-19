@@ -4,12 +4,9 @@ require "./spec_helper"
 # Verifies `Crystal::JIT::Value#to_s` stringifies tuples, named tuples,
 # and struct ivars from the wrapper buffer.
 # Opt-in via CRYSTAL_JIT_VALUE_MARSHAL_SPEC=1.
-RUN_JIT_VALUE_MARSHAL_SPEC = ENV["CRYSTAL_JIT_VALUE_MARSHAL_SPEC"]? == "1"
-
 describe "Crystal::JIT::Value marshalling" do
   it "stringifies tuples, named tuples, and struct ivars from the wrapper buffer" do
-    pending! "JIT backend only", file: __FILE__, line: __LINE__ unless JIT_BACKEND
-    pending! "opt in via CRYSTAL_JIT_VALUE_MARSHAL_SPEC=1", file: __FILE__, line: __LINE__ unless RUN_JIT_VALUE_MARSHAL_SPEC
+    jit_opt_in!("CRYSTAL_JIT_VALUE_MARSHAL_SPEC")
 
     repl = Crystal::JIT::Repl.new
 

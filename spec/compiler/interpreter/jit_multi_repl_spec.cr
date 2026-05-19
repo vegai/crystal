@@ -4,12 +4,9 @@ require "./spec_helper"
 # Verifies the JIT submission inherits the host's signal handlers, so a
 # subsequent host-side `Process.run` is not wedged in `epoll_wait`.
 # Opt-in via CRYSTAL_JIT_MULTI_REPL_SPEC=1.
-RUN_JIT_MULTI_REPL_SPEC = ENV["CRYSTAL_JIT_MULTI_REPL_SPEC"]? == "1"
-
 describe "Crystal::JIT::Repl multi-submission with full prelude" do
   it "host Process.run and subsequent submissions survive the first JIT __crystal_main" do
-    pending! "JIT only", file: __FILE__, line: __LINE__ unless JIT_BACKEND
-    pending! "opt in via CRYSTAL_JIT_MULTI_REPL_SPEC=1", file: __FILE__, line: __LINE__ unless RUN_JIT_MULTI_REPL_SPEC
+    jit_opt_in!("CRYSTAL_JIT_MULTI_REPL_SPEC")
 
     # Sanity-check: a host backtick works before any JIT submission.
     `echo pre`.chomp.should eq("pre")

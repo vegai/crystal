@@ -4,13 +4,10 @@ require "./spec_helper"
 # Cached-exec bench for tight integer loops under the JIT backend.
 # Asserts nothing; prints first/cached/cached timings to stdout.
 # Opt-in via CRYSTAL_JIT_LOOP_BENCH_SPEC=1.
-RUN_JIT_LOOP_BENCH_SPEC = ENV["CRYSTAL_JIT_LOOP_BENCH_SPEC"]? == "1"
-
 JIT_LOOP_BENCH_PRELUDE = ENV["CRYSTAL_JIT_LOOP_BENCH_PRELUDE"]? || "prelude"
 
 private def bench(label : String, code : String)
-  pending! "JIT backend only", file: __FILE__, line: __LINE__ unless JIT_BACKEND
-  pending! "opt in via CRYSTAL_JIT_LOOP_BENCH_SPEC=1", file: __FILE__, line: __LINE__ unless RUN_JIT_LOOP_BENCH_SPEC
+  jit_opt_in!("CRYSTAL_JIT_LOOP_BENCH_SPEC")
 
   repl = Crystal::JIT::Repl.new
   repl.prelude = JIT_LOOP_BENCH_PRELUDE

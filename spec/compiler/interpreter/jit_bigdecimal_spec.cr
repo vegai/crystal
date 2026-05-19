@@ -14,12 +14,9 @@ require "./spec_helper"
 # rescue. The fix restricts `prepare_session` to pre-parsing the
 # prelude (which is fast and side-effect-free) - the first user
 # submission re-bundles `[prelude, input]` as one module again.
-RUN_JIT_BIGDECIMAL_SPEC = ENV["CRYSTAL_JIT_BIGDECIMAL_SPEC"]? == "1"
-
 describe "Crystal::JIT::Repl BigDecimal raising init" do
   it "raises InvalidBigDecimalException after warmup + require big" do
-    pending! "JIT backend only", file: __FILE__, line: __LINE__ unless JIT_BACKEND
-    pending! "opt in via CRYSTAL_JIT_BIGDECIMAL_SPEC=1", file: __FILE__, line: __LINE__ unless RUN_JIT_BIGDECIMAL_SPEC
+    jit_opt_in!("CRYSTAL_JIT_BIGDECIMAL_SPEC")
 
     repl = Crystal::JIT::Repl.new
     # Mirror the interactive Repl#run path.
