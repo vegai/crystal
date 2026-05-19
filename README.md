@@ -58,11 +58,14 @@ whatever files seeded the Repl.
 
 ### Sharing and removability
 
-The JIT side is ~2.6k new LOC under `src/compiler/crystal/interpreter/jit/`,
-reuses the AOT codegen at `src/compiler/crystal/codegen/` rather than the
-bytecode VM, and shares only `repl_reader.cr` (141 LOC) with the older
-interpreter tree. If the JIT replaced the bytecode backend, roughly 11,200
-LOC across `src/compiler/crystal/interpreter/` would become removable.
+The JIT side is ~2.4k new LOC under `src/compiler/crystal/interpreter/jit/`,
+plus ~330 LOC of JIT-only state hooks at the codegen interface
+(`src/compiler/crystal/repl_state.cr` and `repl_codegen_hooks.cr`; the
+`Noop` subclass keeps the AOT path guard-free). The implementation
+reuses the AOT codegen at `src/compiler/crystal/codegen/` rather than
+the bytecode VM, and shares only `repl_reader.cr` (141 LOC) with the
+older interpreter tree. If the JIT replaced the bytecode backend, roughly
+11,200 LOC across `src/compiler/crystal/interpreter/` would become removable.
 
 ---
 
