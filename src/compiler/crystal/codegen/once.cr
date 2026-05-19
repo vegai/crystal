@@ -19,11 +19,13 @@ class Crystal::CodeGenVisitor
   end
 
   def run_once(flag, func : LLVMTypedFunction)
-    # repl_mode bypasses `__crystal_once`; raising initializers would
-    # otherwise leave a dangling Operation in `@@operations`. The REPL
-    # is single-threaded by design so the thread-safety guarantee that
-    # `__crystal_once` provides isn't needed here; a MT/EC Crystal
-    # program JIT'd at the REPL would need to revisit this.
+    # repl_mode bypasses `__crystal_once`. Under non-EC builds the inline
+    # load+cond+store is safe because the REPL is single-threaded. Under
+    # EC builds concurrent fibers can both pass the flag check and
+    # double-initialize; we accept that for class-var initializers
+    # because the alternative (`__crystal_once`) leaves a dangling
+    # Operation in `@@operations` on a raising init, which the JIT can't
+    # currently unwind across submissions.
     if @repl_hooks.repl_mode?
       return run_once_inline(flag, func)
     end
