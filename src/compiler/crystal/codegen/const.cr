@@ -42,6 +42,7 @@ class Crystal::CodeGenVisitor
 
   # Skip GC-root registration for const/class-var types that can't hold
   # a heap pointer; the bounded `MAX_ROOT_SETS` table fills up otherwise.
+  # Also called from `class_var.cr` (same reopened `CodeGenVisitor`).
   private def type_may_hold_gc_pointer?(type : Crystal::Type) : Bool
     case type
     when Crystal::IntegerType, Crystal::FloatType, Crystal::BoolType,
