@@ -71,8 +71,14 @@ class Crystal::CodeGenVisitor
                                  is_fun_literal : Bool, is_closure : Bool) : RedefPlan
     emit_body = (!target_def.is_a?(External) || is_exported_fun) &&
                 !@repl_hooks.target_def_emitted?(target_def.object_id)
-    install_dispatch = emit_body && @repl_hooks.repl_mode? && @single_module && !target_def.is_a?(External) && !is_fun_literal && !is_closure
-    return RedefPlan.new(emit_body, false, mangled_name) unless install_dispatch
+
+    no_dispatch = RedefPlan.new(emit_body, false, mangled_name)
+    return no_dispatch unless emit_body
+    return no_dispatch unless @repl_hooks.repl_mode?
+    return no_dispatch unless @single_module
+    return no_dispatch if target_def.is_a?(External)
+    return no_dispatch if is_fun_literal
+    return no_dispatch if is_closure
 
     if existing_version = @repl_hooks.emitted_stub_version?(mangled_name)
       new_version = existing_version + 1
