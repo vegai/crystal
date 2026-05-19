@@ -290,32 +290,19 @@ module Crystal::JIT
     # Compile a submission into an invokable wrapper. Separated from
     # `invoke` so callers can cache the wrapper across re-runs.
     def compile(node : ASTNode, well_known_source : ASTNode? = nil) : CompiledWrapper
-      @main_visitor = MainVisitor.new(from_main_visitor: @main_visitor)
-      repl_state.begin_submission!
       check_layout_change_refusal(node)
-      # `parse_code` normalized the user input; the bundled-prelude path
-      # wraps two normalized ASTs in a fresh `Expressions`. Re-normalize
-      # so `Expressions` and any synthetic wrappers (`FileNode`, etc.) go
-      # through the Normalizer too. The pass is idempotent on already
-      # normalized children.
-      node = @program.normalize(node)
-      type_graph_dirty = AstShape.any_type_mutating?(node)
-      node = semantic_for_submission(node, type_graph_dirty)
-      if type_graph_dirty || !@libs_initialized
-        ensure_libraries_loaded
-        @libs_initialized = true
-      end
-      run_jit(node, well_known_source)
+      walked, dirty = begin_submission_walk(node)
+      ensure_libs_loaded(dirty)
+      run_jit(walked, well_known_source)
     end
 
     # Background-warmup entry: type the prelude so the first user
     # submission only pays codegen. Caches the walked AST so
-    # `take_walked_prelude` can fetch it on the foreground thread.
+    # `take_walked_prelude` can fetch it on the foreground thread. The
+    # lib-load is deferred to the first user submission's
+    # `compile_with_walked_prelude`.
     def walk_prelude_for_warmup(prelude_ast : ASTNode) : Nil
-      @main_visitor = MainVisitor.new(from_main_visitor: @main_visitor)
-      repl_state.begin_submission!
-      node = @program.normalize(prelude_ast)
-      walked = semantic_for_submission(node, type_graph_dirty: true)
+      walked, _ = begin_submission_walk(prelude_ast)
       @walked_prelude = walked
     end
 
@@ -331,15 +318,8 @@ module Crystal::JIT
     # input. Only the input is semantically walked. Used on the first
     # user submission after warmup typed the prelude.
     def compile_with_walked_prelude(walked_prelude : ASTNode, input : ASTNode) : CompiledWrapper
-      @main_visitor = MainVisitor.new(from_main_visitor: @main_visitor)
-      repl_state.begin_submission!
-      input = @program.normalize(input)
-      type_graph_dirty = AstShape.any_type_mutating?(input)
-      walked_input = semantic_for_submission(input, type_graph_dirty)
-      if type_graph_dirty || !@libs_initialized
-        ensure_libraries_loaded
-        @libs_initialized = true
-      end
+      walked_input, dirty = begin_submission_walk(input)
+      ensure_libs_loaded(dirty)
       bundle = Expressions.new([walked_prelude, walked_input] of ASTNode)
       # The bundle itself is never walked, so its `.type` would default
       # to nil and `run_jit` would treat the wrapper as void; copy the
@@ -348,6 +328,27 @@ module Crystal::JIT
         bundle.type = input_type
       end
       run_jit(bundle, nil)
+    end
+
+    # Shared submission front-half: prime the visitor, mark a new
+    # submission on `repl_state`, normalize, classify type-graph dirty,
+    # and walk. Used by `compile`, `compile_with_walked_prelude`, and
+    # `walk_prelude_for_warmup` so the four prep steps stay in lockstep.
+    private def begin_submission_walk(node : ASTNode) : {ASTNode, Bool}
+      @main_visitor = MainVisitor.new(from_main_visitor: @main_visitor)
+      repl_state.begin_submission!
+      normalized = @program.normalize(node)
+      type_graph_dirty = AstShape.any_type_mutating?(normalized)
+      walked = semantic_for_submission(normalized, type_graph_dirty)
+      {walked, type_graph_dirty}
+    end
+
+    # Idempotent lib-loader. The first dirty submission (or the first
+    # submission overall) triggers; later calls early-return.
+    private def ensure_libs_loaded(type_graph_dirty : Bool) : Nil
+      return if !type_graph_dirty && @libs_initialized
+      ensure_libraries_loaded
+      @libs_initialized = true
     end
 
     # Same phases as `Program#semantic`, but `AbstractDefChecker` +
