@@ -42,11 +42,17 @@ module Crystal::JIT
 
     # Top-level identifiers parse as `Call`; rewrite the ones we know are persistent locals.
     def transform(node : Crystal::Call) : Crystal::ASTNode
-      if at_top_level? && node.obj.nil? && node.args.empty? && node.block.nil? && node.block_arg.nil? && node.named_args.nil? && !reserved?(node.name) && @known.includes?(node.name)
+      if lift_call_as_class_var?(node)
         Crystal::ClassVar.new("#{PREFIX}#{node.name}").at(node)
       else
         super
       end
+    end
+
+    private def lift_call_as_class_var?(node : Crystal::Call) : Bool
+      at_top_level? && node.obj.nil? && node.args.empty? && node.block.nil? &&
+        node.block_arg.nil? && node.named_args.nil? &&
+        !reserved?(node.name) && @known.includes?(node.name)
     end
 
     # Top-level `def foo` becomes `def self.foo` so the wrapper module's
