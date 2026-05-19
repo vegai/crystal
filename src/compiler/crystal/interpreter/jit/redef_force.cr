@@ -105,7 +105,13 @@ module Crystal::JIT
       proc_literal
     end
 
-    # Process-wide: stale LinkOnceODR bodies would otherwise survive `Repl#reset`.
+    # Uniqueness is only required *within* a Session (ORC's first-wins
+    # LinkOnceODR pick happens against the dylib of the currently-live
+    # LLJIT; `Repl#reset` disposes the LLJIT, so cross-Session reuse of
+    # the same synthetic name is fine). Kept process-wide because Atomic
+    # is cheap and threading a counter through the module would add a
+    # parameter to every `RedefForce` helper without observable benefit;
+    # an interactive Repl is not going to issue 2^31 submissions.
     @@counter = Atomic(Int32).new(0)
 
     private def fresh_counter : Int32
