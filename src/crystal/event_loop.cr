@@ -33,8 +33,38 @@ abstract class Crystal::EventLoop
   # dynamically started and execution contexts can be resized, more or less
   # schedulers may really register in practice.
   def self.create(parallelism : Int32 = 1) : self
-    backend_class.new(parallelism)
+    instance = backend_class.new(parallelism)
+    {% if flag?(:unix) && flag?(:host_signal_handlers_already_installed) %}
+      # TODO: append-only pin; see `@@registry` decl below and
+      # PROTOTYPE_STATUS.md "Known issues" for the unbounded-growth note.
+      @@registry_mutex.synchronize { @@registry << instance }
+    {% end %}
+    instance
   end
+
+  # Host AOT builds keep the no-op below; the JIT prelude opts in via
+  # `host_signal_handlers_already_installed` and overrides this with the
+  # real wake plus the registry it iterates.
+  def self.interrupt_all : Nil
+  end
+
+  {% if flag?(:unix) && flag?(:host_signal_handlers_already_installed) %}
+    # Append-only: EventLoops aren't destroyed in normal use, and the
+    # one consumer (`interrupt_all`) tolerates stale entries because
+    # each backend's `interrupt` is a no-op when the loop is awake.
+    # `Repl#reset` followed by new submissions does grow the registry;
+    # see PROTOTYPE_STATUS.md "Known issues" for the bound.
+    @@registry = [] of self
+    @@registry_mutex = Thread::Mutex.new
+
+    # Coarse cross-context wake. Safe to call from any thread that has
+    # state to publish; each backend's `interrupt` is idempotent.
+    def self.interrupt_all : Nil
+      @@registry_mutex.synchronize do
+        @@registry.each(&.interrupt)
+      end
+    end
+  {% end %}
 
   def self.default_file_blocking? : Bool
     backend_class.default_file_blocking?

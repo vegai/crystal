@@ -606,19 +606,23 @@ end
     Crystal::Scheduler.init
   {% end %}
 
-  # load debug info on start up of the program is executed with CRYSTAL_LOAD_DEBUG_INFO=1
-  # this will make debug info available on print_frame that is used by Crystal's segfault handler
-  #
-  # - CRYSTAL_LOAD_DEBUG_INFO=0 will never use debug info (See Exception::CallStack.load_debug_info)
-  # - CRYSTAL_LOAD_DEBUG_INFO=1 will load debug info on startup
-  # - Other values will load debug info on demand: when the backtrace of the first exception is generated
-  Exception::CallStack.load_debug_info if ENV["CRYSTAL_LOAD_DEBUG_INFO"]? == "1"
-  Exception::CallStack.setup_crash_handler
+  # Skip signal/crash handler setup when the host has already installed
+  # them; re-trapping SIGCHLD would displace the host's child reaper.
+  {% unless flag?(:host_signal_handlers_already_installed) %}
+    # load debug info on start up of the program is executed with CRYSTAL_LOAD_DEBUG_INFO=1
+    # this will make debug info available on print_frame that is used by Crystal's segfault handler
+    #
+    # - CRYSTAL_LOAD_DEBUG_INFO=0 will never use debug info (See Exception::CallStack.load_debug_info)
+    # - CRYSTAL_LOAD_DEBUG_INFO=1 will load debug info on startup
+    # - Other values will load debug info on demand: when the backtrace of the first exception is generated
+    Exception::CallStack.load_debug_info if ENV["CRYSTAL_LOAD_DEBUG_INFO"]? == "1"
+    Exception::CallStack.setup_crash_handler
 
-  {% if flag?(:win32) %}
-    Crystal::System::Process.start_interrupt_loop
-  {% else %}
-    Crystal::System::Signal.setup_default_handlers
+    {% if flag?(:win32) %}
+      Crystal::System::Process.start_interrupt_loop
+    {% else %}
+      Crystal::System::Signal.setup_default_handlers
+    {% end %}
   {% end %}
 {% end %}
 

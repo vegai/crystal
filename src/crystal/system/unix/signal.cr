@@ -289,6 +289,15 @@ module Crystal::System::SignalChildHandler
   @@waiting = {} of LibC::PidT => Channel(Int32)
   @@mutex = Sync::Mutex.new(:unchecked)
 
+  # Optional callback for reaped pids not in `@@waiting`. Returns
+  # true to claim the pid (reaper drops it), false to leave it in
+  # `@@pending` for a later `wait(pid)`.
+  @@external_reaper : Proc(LibC::PidT, Int32, Bool)? = nil
+
+  def self.external_reaper=(callback : Proc(LibC::PidT, Int32, Bool)?) : Nil
+    @@mutex.synchronize { @@external_reaper = callback }
+  end
+
   def self.wait(pid : LibC::PidT) : Channel(Int32)
     channel = Channel(Int32).new(1)
 
@@ -316,18 +325,47 @@ module Crystal::System::SignalChildHandler
         return if Errno.value == Errno::ECHILD
         raise RuntimeError.from_errno("waitpid")
       else
-        @@mutex.lock
-        if channel = @@waiting.delete(pid)
-          @@mutex.unlock
-          channel.send(exit_code)
-          channel.close
-        else
-          @@pending[pid] = exit_code
-          @@mutex.unlock
-        end
+        handle_reaped(pid, exit_code)
       end
     end
   end
+
+  private def self.handle_reaped(pid : LibC::PidT, exit_code : Int32) : Nil
+    @@mutex.lock
+    if channel = @@waiting.delete(pid)
+      @@mutex.unlock
+      channel.send(exit_code)
+      channel.close
+      return
+    end
+
+    # Reaper runs under @@mutex; must not block or re-enter.
+    begin
+      if (reaper = @@external_reaper) && reaper.call(pid, exit_code)
+        return
+      end
+      @@pending[pid] = exit_code
+    ensure
+      @@mutex.unlock
+    end
+  end
+
+  {% if flag?(:host_signal_handlers_already_installed) %}
+    # JIT-only hook invoked by the host's `external_reaper`.
+    def self.notify_reaped(pid : LibC::PidT, exit_code : Int32) : Bool
+      @@mutex.lock
+      if channel = @@waiting.delete(pid)
+        @@mutex.unlock
+        channel.send(exit_code)
+        channel.close
+        # `wake_scheduler` can be dropped under capacity-1 hijacked schedulers.
+        Crystal::EventLoop.interrupt_all
+        return true
+      end
+      @@mutex.unlock
+      false
+    end
+  {% end %}
 
   def self.after_fork
     @@pending.clear
