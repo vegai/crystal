@@ -882,7 +882,7 @@ module Crystal
       const.fake_def = const_def
       const.visitor = self
       const.used = true
-      @program.const_initializers << const unless @program.const_initializers.includes?(const)
+      @program.const_initializers << const
     end
 
     def type_assign(target : Global, value, node)

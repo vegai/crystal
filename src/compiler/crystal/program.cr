@@ -144,8 +144,10 @@ module Crystal
 
     # Here we store constants, in the
     # order that they are used. They will be initialized as soon
-    # as the program starts, before the main code.
-    getter const_initializers = [] of Const
+    # as the program starts, before the main code. Uses `Set` so the JIT
+    # redef path can push the same const twice without needing a separate
+    # membership check; insertion order is preserved.
+    getter const_initializers = Set(Const).new
 
     # The class var initializers stored to be used by the cleanup transformer
     getter class_var_initializers = [] of ClassVarInitializer
