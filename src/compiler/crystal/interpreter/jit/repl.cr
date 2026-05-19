@@ -8,6 +8,7 @@ module Crystal::JIT
     # the user code's `__LINE__`.
     getter prelude_extra : Array({String, String}) = [] of {String, String}
 
+    @session : Session
     @prelude_ast : ASTNode? = nil
     @wrapper_cache : Hash(String, Session::CompiledWrapper) = {} of String => Session::CompiledWrapper
     @submission_count : Int32 = 0
@@ -15,33 +16,37 @@ module Crystal::JIT
     @session_initialized : Bool = false
 
     def initialize
-      @program = Program.new
-      configure_program_for_jit
-      @session = Session.new(@program)
-      @context = Context.new(@program)
+      @program, @session, @context = build_session_objects
     end
 
     # Resets the Repl to a pristine state. Next submission re-loads
     # the prelude from scratch.
     def reset : Nil
       @session.dispose
-      @program = Program.new
-      configure_program_for_jit
-      @session = Session.new(@program)
-      @context = Context.new(@program)
+      @program, @session, @context = build_session_objects
+      clear_session_state!
+    end
+
+    # Single chokepoint for per-session object construction. New per-session
+    # objects added here are picked up by both `initialize` and `reset`.
+    private def build_session_objects : {Program, Session, Context}
+      program = Program.new
+      # Dual-use of Program#flags: macros in the user prelude (kernel.cr,
+      # event_loop.cr, signal.cr) check `{% if flag?(...) %}` against the
+      # user program's flag set, not the host compiler's, so setting the
+      # flag here disables host-side signal installation inside JIT code.
+      program.flags << "host_signal_handlers_already_installed"
+      {program, Session.new(program), Context.new(program)}
+    end
+
+    # Cleared between sessions; `@prelude` and `@prelude_extra` survive
+    # on purpose (user-configured before first run).
+    private def clear_session_state! : Nil
       @prelude_ast = nil
       @wrapper_cache.clear
       @session_initialized = false
       @submission_count = 0
       @prelude_semantic_in_progress = false
-    end
-
-    private def configure_program_for_jit
-      # Dual-use of Program#flags: macros in the user prelude (kernel.cr,
-      # event_loop.cr, signal.cr) check `{% if flag?(...) %}` against the
-      # user program's flag set, not the host compiler's, so setting the
-      # flag here disables host-side signal installation inside JIT code.
-      @program.flags << "host_signal_handlers_already_installed"
     end
 
     # Runs on a Boehm finalizer thread, which forbids mutex acquisition.
