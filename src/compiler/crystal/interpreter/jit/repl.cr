@@ -8,6 +8,11 @@ module Crystal::JIT
     # the user code's `__LINE__`.
     getter prelude_extra : Array({String, String}) = [] of {String, String}
 
+    # Soft cap on the per-source `@wrapper_cache`. 256 covers a typical
+    # interactive session; a paste-heavy or test-driver loop reaching the
+    # cap drops the oldest entry per insert (insertion-order LRU).
+    WRAPPER_CACHE_LIMIT = 256
+
     @session : Session
     @prelude_ast : ASTNode? = nil
     @wrapper_cache : Hash(String, Session::CompiledWrapper) = {} of String => Session::CompiledWrapper
@@ -167,12 +172,14 @@ module Crystal::JIT
       if BoolFlagVisitor.found_in?(input_node) { |n| AstShape.defines_value?(n) }
         @wrapper_cache.clear
         input_node = RedefForce.inject(input_node, @program)
-      elsif cached = @wrapper_cache[code]?
+      elsif cached = @wrapper_cache.delete(code)
+        @wrapper_cache[code] = cached
         return @session.invoke(cached)
       end
 
       wrapper = compile_input(input_node)
       mark_submission_compiled
+      @wrapper_cache.shift if @wrapper_cache.size >= WRAPPER_CACHE_LIMIT
       @wrapper_cache[code] = wrapper
       @session.invoke(wrapper)
     rescue ex
