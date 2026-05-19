@@ -5,6 +5,11 @@ require "../config"
 
 class Crystal::Command
   private def repl
+    if i = options.index("--backend=jit")
+      options.delete_at(i)
+      return repl_jit
+    end
+
     repl = Repl.new
 
     parse_with_crystal_opts do |opts|
@@ -44,7 +49,56 @@ class Crystal::Command
       end
 
       show_banner
-      repl.run_file(filename, options)
+      exit repl.run_file(filename, options)
+    end
+  end
+
+  private def repl_jit
+    repl = Crystal::JIT::Repl.new
+    eval_source = nil.as(String?)
+
+    parse_with_crystal_opts do |opts|
+      opts.banner = "Usage: crystal i --backend=jit [options] [programfile] [arguments]\n\nOptions:"
+
+      opts.on("-D FLAG", "--define FLAG", "Define a compile-time flag") do |flag|
+        repl.program.flags << flag
+      end
+
+      opts.on("-e SOURCE", "One-line script. Several `-e`s are concatenated.") do |source|
+        eval_source ||= ""
+        eval_source = "#{eval_source}#{source}\n"
+      end
+
+      opts.on("-h", "--help", "Show this message") do
+        puts opts
+        exit
+      end
+
+      opts.on("--no-color", "Disable colored output") do
+        @color = false
+        repl.program.color = false
+      end
+
+      opts.on("--prelude ", "Use given file as prelude") do |prelude|
+        repl.prelude = prelude
+      end
+    end
+
+    if source = eval_source
+      exit repl.run_eval_source(source)
+    end
+
+    if options.empty?
+      show_banner
+      repl.run
+    else
+      filename = options.shift
+      unless File.file?(filename)
+        error "File '#{filename}' doesn't exist"
+      end
+
+      show_banner
+      exit repl.run_file(filename, options)
     end
   end
 

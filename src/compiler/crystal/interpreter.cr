@@ -2,3 +2,4 @@
 
 require "../requires"
 require "./interpreter/*"
+require "./interpreter/jit/*"
