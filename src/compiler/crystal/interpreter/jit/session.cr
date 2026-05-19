@@ -86,8 +86,10 @@ module Crystal::JIT
       @warmup_done.get(:acquire)
     end
 
-    # `Session#initialize` calls `enable_repl_state!` so the program-level
-    # accessor is always non-nil for any later `Session` method.
+    # Guards against a future code path that constructs a `Session`
+    # without going through `Repl`: such a path would skip
+    # `enable_repl_state!` and the `repl_state?` access would yield nil
+    # silently. The raise surfaces the missing precondition explicitly.
     private def repl_state : Crystal::ReplState
       @program.repl_state? || raise "BUG: Session lost its program-level repl_state"
     end

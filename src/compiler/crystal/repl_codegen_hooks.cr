@@ -1,11 +1,9 @@
 require "./repl_state"
 
 module Crystal
-  # Codegen-side facade over `ReplState`. The Null-object subclass keeps
-  # AOT call sites guard-free; the active subclass forwards to the
-  # per-session state. Without this, every REPL-aware codegen site needed
-  # an `if (rs = @program.repl_state?) && rs.foo(...)` gate that mixed
-  # the dispatch decision with the state lookup.
+  # Codegen-side facade over `ReplState`. Noop avoids the
+  # `if rs = @program.repl_state?` gate at every codegen call site;
+  # Active forwards to the per-session state.
   abstract class ReplCodegenHooks
     abstract def repl_mode? : Bool
     abstract def well_known_source? : ASTNode?
