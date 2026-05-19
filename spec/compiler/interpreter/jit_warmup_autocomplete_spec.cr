@@ -1,6 +1,14 @@
 {% skip_file if flag?(:without_interpreter) %}
 require "./spec_helper"
 
+# Unlike the other `jit_*_spec.cr` files, this one is not gated behind
+# a `jit_opt_in!` env var. The opt-in scheme exists to isolate specs
+# that load the full prelude and hit the multi-Repl wedge documented
+# in PROTOTYPE_STATUS.md; the tests here either use the `primitives`
+# prelude or skip loading one entirely, so they run cleanly inside the
+# main JIT spec process. Bare `pending!` keeps the JIT-only gate
+# without forcing isolation.
+
 # Regression: `Session#compile_with_walked_prelude` builds a fresh
 # `Expressions` to bundle the warmup-walked prelude with the user
 # input. The bundle node itself is not walked, so its `.type` would
@@ -8,10 +16,6 @@ require "./spec_helper"
 # void; the user's first command would return `nil` even for a
 # value-bearing expression. The fix copies `walked_input.type` onto
 # the bundle.
-#
-# Uses the `primitives` prelude so the spec doesn't load the full
-# stdlib (the regression is the type-propagation in the bundle, not
-# anything prelude-specific).
 describe "Crystal::JIT::Repl prewalk warmup bundle type" do
   it "first command after prewalk returns the value, not nil" do
     pending! "JIT backend only", file: __FILE__, line: __LINE__ unless JIT_BACKEND
