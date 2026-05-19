@@ -37,6 +37,10 @@ module Crystal::JIT
     end
 
     private def configure_program_for_jit
+      # Dual-use of Program#flags: macros in the user prelude (kernel.cr,
+      # event_loop.cr, signal.cr) check `{% if flag?(...) %}` against the
+      # user program's flag set, not the host compiler's, so setting the
+      # flag here disables host-side signal installation inside JIT code.
       @program.flags << "host_signal_handlers_already_installed"
     end
 
