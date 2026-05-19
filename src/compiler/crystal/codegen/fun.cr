@@ -69,10 +69,8 @@ class Crystal::CodeGenVisitor
 
   private def compute_redef_plan(mangled_name : String, target_def, is_exported_fun : Bool,
                                  is_fun_literal : Bool, is_closure : Bool) : RedefPlan
-    emit_body = (!target_def.is_a?(External) || is_exported_fun)
-    if @repl_hooks.target_def_emitted?(target_def.object_id)
-      emit_body = false
-    end
+    emit_body = (!target_def.is_a?(External) || is_exported_fun) &&
+                !@repl_hooks.target_def_emitted?(target_def.object_id)
     install_dispatch = emit_body && @repl_hooks.repl_mode? && @single_module && !target_def.is_a?(External) && !is_fun_literal && !is_closure
     return RedefPlan.new(emit_body, false, mangled_name) unless install_dispatch
 
