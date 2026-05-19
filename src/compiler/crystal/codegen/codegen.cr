@@ -464,7 +464,8 @@ module Crystal
     # `:vN` suffix.
     private def symbol_table_name : String
       return SYMBOL_TABLE_NAME unless @repl_hooks.repl_mode?
-      @repl_symbol_table_name ||= "#{SYMBOL_TABLE_NAME}:v#{@repl_hooks.bump_symbol_table_version}"
+      active_hooks = @repl_hooks.as(ReplCodegenHooks::Active)
+      @repl_symbol_table_name ||= "#{SYMBOL_TABLE_NAME}:v#{active_hooks.bump_symbol_table_version}"
     end
 
     def ensure_repl_symbol_table_slot : LLVM::Value

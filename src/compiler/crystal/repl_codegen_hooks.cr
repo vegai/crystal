@@ -23,7 +23,11 @@ module Crystal
     abstract def queue_symbol_table_update(slot : String, table : String) : Nil
     abstract def emitted_stub_version?(canonical : String) : Int32?
     abstract def set_emitted_stub_version(canonical : String, version : Int32) : Nil
-    abstract def bump_symbol_table_version : Int32
+
+    # `bump_symbol_table_version` is `Active`-only; the lone caller in
+    # `codegen.cr#symbol_table_name` already gates on `repl_mode?` and
+    # downcasts. Keeping it off the base class means AOT never has to
+    # provide a meaningless stub.
 
     class Noop < ReplCodegenHooks
       def repl_mode? : Bool
@@ -86,10 +90,6 @@ module Crystal
       end
 
       def set_emitted_stub_version(canonical : String, version : Int32) : Nil
-      end
-
-      def bump_symbol_table_version : Int32
-        raise "BUG: AOT codegen should not version the symbol table"
       end
     end
 
