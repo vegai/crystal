@@ -58,7 +58,7 @@ module Crystal::JIT
     # state (`@program.string_pool`, types, defs). `auto_complete`'s
     # method-name lookup walks `@program.types`, so reads must be gated
     # until the warmup releases.
-    @warmup_done = Atomic(Int32).new(1)
+    @warmup_done = Atomic(Bool).new(true)
     # Set by `walk_prelude_for_warmup`; consumed once by
     # `compile_with_walked_prelude` on the first user submission so the
     # prelude's typed AST is reused instead of re-walked.
@@ -75,15 +75,15 @@ module Crystal::JIT
     # `Repl#kick_off_warmup` arms this before spawning the background fiber;
     # `prepare_session` clears it when the prelude work releases shared state.
     def mark_warmup_started : Nil
-      @warmup_done.set(0, :release)
+      @warmup_done.set(false, :release)
     end
 
     def mark_warmup_done : Nil
-      @warmup_done.set(1, :release)
+      @warmup_done.set(true, :release)
     end
 
     def warmup_done? : Bool
-      @warmup_done.get(:acquire) == 1
+      @warmup_done.get(:acquire)
     end
 
     # `Session#initialize` calls `enable_repl_state!` so the program-level
