@@ -52,6 +52,19 @@ describe "Crystal::JIT::Repl method redef" do
     repl.run_code("def hot_unrestricted(x); Random.new(42).rand((x &* 10)..(x &* 10)); end")
     repl.run_code("hot_unrestricted(5_i32)").value.to_s.should eq("50")
 
+    # Unrestricted-args replay across two distinct prior shapes. The
+    # `RedefForce -> synthesize_top_level_with_prior_types` path wraps
+    # each cached arg tuple in a synthetic `TypeNode` so the
+    # `ProcPointer` expansion picks up the type without source syntax.
+    # Populate two arg-shape tuples (`[Int32]` and `[Int64]`) before
+    # the redef, then assert both shapes route to the new body.
+    repl.run_code("def hot_multi(x); x &+ 1; end")
+    repl.run_code("hot_multi(5_i32)").value.to_s.should eq("6")
+    repl.run_code("hot_multi(10_i64)").value.to_s.should eq("11")
+    repl.run_code("def hot_multi(x); x &+ 1000; end")
+    repl.run_code("hot_multi(5_i32)").value.to_s.should eq("1005")
+    repl.run_code("hot_multi(10_i64)").value.to_s.should eq("1010")
+
     # Top-level def with an explicit block_arg restriction.
     repl.run_code("def hot_blk(&b : Int32 -> Int32); b.call(Random.new(42).rand(7_i32..7_i32)); end")
     repl.run_code("def hot_blk_caller; hot_blk { |x| x &+ 100 }; end")
