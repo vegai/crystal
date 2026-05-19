@@ -692,8 +692,7 @@ module Crystal::JIT
 
     private def codegen_submission(node : ASTNode, well_known_source : ASTNode?) : {CodeGenVisitor, LLVM::Module}
       ctx = llvm_context
-      state = @program.repl_state? || raise "BUG: JIT codegen requires Program#enable_repl_state!"
-      hooks = ReplCodegenHooks::Active.new(state, well_known_source: well_known_source)
+      hooks = ReplCodegenHooks::Active.new(repl_state, well_known_source: well_known_source)
       visitor = CodeGenVisitor.new(@program, node,
         single_module: true,
         llvm_context: ctx,
