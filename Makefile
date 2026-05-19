@@ -153,6 +153,16 @@ primitives_spec: $(O)/primitives_spec$(EXE) ## Run primitives specs
 interpreter_spec: $(O)/interpreter_spec$(EXE) ## Run interpreter specs
 	$(O)/interpreter_spec$(EXE) $(SPEC_FLAGS)
 
+# Run the interpreter spec under the JIT backend, then run each opt-in
+# JIT spec in its own process. The opt-in specs use the full prelude
+# (Random, BigInt, etc.) and would wedge if combined with the broader
+# suite under one process - see PROTOTYPE_STATUS.md "multi-Repl with
+# full prelude" note.
+.PHONY: interpreter_spec_jit
+interpreter_spec_jit: $(O)/interpreter_spec$(EXE) ## Run interpreter specs under JIT backend, including opt-in JIT specs in isolation
+	CRYSTAL_INTERP_BACKEND=jit $(O)/interpreter_spec$(EXE) $(SPEC_FLAGS)
+	scripts/run_jit_optin_specs.sh $(O)/interpreter_spec$(EXE)
+
 .PHONY: simple_smoke_test
 simple_smoke_test: ## Build std specs as a smoke test
 simple_smoke_test: $(O)/std_spec$(EXE)

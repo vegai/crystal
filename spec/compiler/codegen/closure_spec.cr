@@ -801,4 +801,75 @@ describe "Code gen: closure" do
       fn.call.closure_data.address == Closure.atomic.address
       CRYSTAL
   end
+
+  it "codegens closure captured inside a class-var initializer" do
+    # Crashed with `NilAssertionError` on `context.closure_vars.not_nil!`
+    # at codegen_fun.cr - `create_initialize_class_var_function` called
+    # `alloca_vars meta_vars` with no `obj`, so `closured_vars`
+    # matched nothing (the var's `@context` is `@program`) and
+    # `malloc_closure` left `context.closure_vars` nil. The inner
+    # ProcLiteral then asserted on it. Pass `@program` as the obj
+    # to match the var's recorded context.
+    run(<<-CRYSTAL).to_i.should eq(42)
+      class Foo
+        @@foo : Int32 =
+          begin
+            a = 0
+            proc = -> { a = 42 }
+            proc.call
+            a
+          end
+
+        def self.foo
+          @@foo
+        end
+      end
+
+      Foo.foo
+      CRYSTAL
+  end
+
+  it "codegens closure with multiple captures inside a class-var initializer" do
+    run(<<-CRYSTAL).to_i.should eq(300)
+      class Foo
+        @@foo : Int32 =
+          begin
+            x = 1
+            y = 2
+            f = -> { x &+ y }
+            x = 100
+            y = 200
+            f.call
+          end
+
+        def self.foo
+          @@foo
+        end
+      end
+
+      Foo.foo
+      CRYSTAL
+  end
+
+  it "codegens nested closures inside a class-var initializer" do
+    run(<<-CRYSTAL).to_i.should eq(11)
+      class Foo
+        @@foo : Int32 =
+          begin
+            a = 1
+            r = -> {
+              b = a &+ 10
+              -> { b }.call
+            }
+            r.call
+          end
+
+        def self.foo
+          @@foo
+        end
+      end
+
+      Foo.foo
+      CRYSTAL
+  end
 end

@@ -2,6 +2,41 @@
 require "../spec_helper"
 require "compiler/crystal/interpreter/*"
 
+JIT_BACKEND = ENV["CRYSTAL_INTERP_BACKEND"]? == "jit"
+
+# JIT-spec-only support; see `Crystal::JIT::SpecSupport`.
+module Crystal::JIT::SpecSupport
+  # Stubs for runtime helpers the `primitives` prelude omits. See
+  # `EXCEPTION_RUNTIME_SOURCE` for the unwind side.
+  STUBS = {
+    "__crystal_raise_overflow"    => "fun __crystal_raise_overflow : NoReturn\n  while true; end\nend",
+    "__crystal_raise_cast_failed" => "fun __crystal_raise_cast_failed(s1 : UInt8*, s2 : UInt8*, file : UInt8*, line : Int32, col : Int32) : NoReturn\n  while true; end\nend",
+  }
+
+  STUB_REGEXES = STUBS.map { |name, _| {name, /\bfun\s+#{Regex.escape(name)}\b/} }.to_h
+
+  # Registers stubs as prelude extras so they keep their own synthetic
+  # filename rather than shifting the user code's `__LINE__`.
+  def self.apply_stubs(repl : Crystal::JIT::Repl, code) : Nil
+    STUBS.each do |name, stub|
+      next if code.matches?(STUB_REGEXES[name])
+      repl.prelude_extra << {stub, "(jit-spec-stub-#{name})"}
+    end
+  end
+
+  # Drops JIT-mapped pages for every alive Session. Used between examples
+  # to bound RSS; production code disposes individual Sessions explicitly.
+  def self.dispose_all_sessions : Nil
+    Crystal::JIT::Session.each_alive(&.dispose)
+  end
+end
+
+# Bound the JIT Session pin between examples; otherwise RSS climbs as
+# `@@alive` keeps each instance for LLVM teardown safety.
+if JIT_BACKEND
+  Spec.before_each { Crystal::JIT::SpecSupport.dispose_all_sessions }
+end
+
 def interpret(code, *, prelude = "primitives", file = __FILE__, line = __LINE__)
   if prelude == "primitives"
     context, value = interpret_with_context(code)
@@ -13,9 +48,14 @@ def interpret(code, *, prelude = "primitives", file = __FILE__, line = __LINE__)
 end
 
 def interpret_with_context(code)
-  repl = Crystal::Repl.new
-  repl.prelude = "primitives"
-
+  if JIT_BACKEND
+    repl = Crystal::JIT::Repl.new
+    repl.prelude = "primitives"
+    Crystal::JIT::SpecSupport.apply_stubs(repl, code)
+  else
+    repl = Crystal::Repl.new
+    repl.prelude = "primitives"
+  end
   value = repl.run_code(code)
   {repl.context, value}
 end

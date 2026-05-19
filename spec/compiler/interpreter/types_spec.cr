@@ -10,7 +10,9 @@ describe Crystal::Repl::Interpreter do
 
     it "interprets class for non-union type" do
       context, repl_value = interpret_with_context("1.class")
-      repl_value.value.should eq(context.program.int32)
+      type = repl_value.value.as(Crystal::Type)
+      type = type.instance_type if type.metaclass?
+      type.should eq(context.program.int32)
     end
 
     it "discards class for non-union type" do

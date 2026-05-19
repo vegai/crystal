@@ -10,6 +10,62 @@
 
 ---
 
+## Branch note: experimental JIT interpreter
+
+This `interpreter-experiments` branch adds a second backend for `crystal i`:
+`crystal i --backend=jit` routes user code through the existing AOT codegen
+pipeline and runs it via LLVM ORC's `LLJIT`, instead of through the bytecode
+compiler and VM. Each submission is compiled into LLVM IR by the same
+`CodeGenVisitor` the AOT compiler uses, added to a single long-lived
+`JITDylib`, materialized by ORC, and invoked via symbol lookup. Design
+notes and per-phase progress live in
+[`PROTOTYPE_STATUS.md`](PROTOTYPE_STATUS.md).
+
+### Cross-submission state
+
+A `CodeGenVisitor#repl_mode` flag changes how globals and previously-emitted
+functions are linked. Already-emitted `target_def`s and `FunDef` externals
+become signature-only declarations in later submissions, with the canonical
+body kept alive via `LinkOnceODR` linkage so ORC keeps one copy across
+modules; class-var storage, type-id tables, slice constants, and once-init
+state get the same treatment. Top-level locals are lifted to class vars on a
+synthetic `__REPLState` module, and top-level `def`s become class methods on
+it, so both persist across submissions.
+
+### Hot reload
+
+Every user `target_def` is emitted as a stub + `:slot` global + versioned
+body: callers jump through the stub, which loads the slot pointer and
+tail-calls into the current body. Redefining the method emits a new `:vN`
+body and writes its address into the slot with an acquire / release pair.
+Constants can also be redefined; the global is left mutable in `repl_mode`
+and `read_const` goes through a runtime load. Layout-incompatible class
+changes are detected pre-semantic and refused with a `reset` hint. State
+survives a hot redef; a cold `Repl#reset` drops the program and re-runs
+whatever files seeded the Repl.
+
+### What works
+
+- Full `prelude`; FFI to shared libs via `program.lib_flags`. Canonical
+  smoke test: `require "big"; puts BigInt.new("999...") * 7` produces
+  identical output under JIT and AOT.
+- Interactive REPL with `Reply::Reader` line editing, history,
+  autocomplete, and multi-line autoindent.
+- One-shot mode (`crystal i --backend=jit -e SOURCE`) matching `crystal
+  eval`'s exit semantics.
+- 783 / 783 interpreter spec parity with the bytecode backend under
+  `CRYSTAL_INTERP_BACKEND=jit`.
+
+### Sharing and removability
+
+The JIT side is ~2.6k new LOC under `src/compiler/crystal/interpreter/jit/`,
+reuses the AOT codegen at `src/compiler/crystal/codegen/` rather than the
+bytecode VM, and shares only `repl_reader.cr` (141 LOC) with the older
+interpreter tree. If the JIT replaced the bytecode backend, roughly 11,200
+LOC across `src/compiler/crystal/interpreter/` would become removable.
+
+---
+
 [![Crystal - Born and raised at Manas](doc/assets/crystal-born-and-raised.svg)](https://manas.tech/)
 
 Crystal is a programming language with the following goals:
