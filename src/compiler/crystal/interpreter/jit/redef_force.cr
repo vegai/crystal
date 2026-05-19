@@ -134,16 +134,15 @@ module Crystal::JIT
       return nil if prior_defs.nil? || prior_defs.empty?
 
       tuples = [] of Array(Crystal::Type)
-      # Tuple-of-fingerprints: object_id catches the common case;
-      # to_s defends against the theoretical post-`Repl#reset` case
-      # where a fresh Type could land at a recycled object_id slot.
-      seen = Set({Array(UInt64), Array(String)}).new
+      # `to_s` survives a post-`Repl#reset` object_id recycle: a fresh
+      # Type at the same address still stringifies to its current name.
+      seen = Set(Array(String)).new
       prior_defs.each do |dwm|
         prior_def = dwm.def
         next unless prior_def.args.size == d.args.size
         program.def_instances.each do |key, _|
           next unless key.def_object_id == prior_def.object_id
-          fingerprint = {key.arg_types.map(&.object_id), key.arg_types.map(&.to_s)}
+          fingerprint = key.arg_types.map(&.to_s)
           next if seen.includes?(fingerprint)
           seen << fingerprint
           tuples << key.arg_types
