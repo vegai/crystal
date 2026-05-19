@@ -12,30 +12,10 @@ class Crystal::Command
 
     repl = Repl.new
 
-    parse_with_crystal_opts do |opts|
-      opts.banner = "Usage: crystal i [options] [programfile] [arguments]\n\nOptions:"
-
-      opts.on("-D FLAG", "--define FLAG", "Define a compile-time flag") do |flag|
-        repl.program.flags << flag
-      end
-
+    parse_repl_opts(repl, "Usage: crystal i [options] [programfile] [arguments]\n\nOptions:") do |opts|
       opts.on("--error-trace", "Show full error trace") do
         repl.program.show_error_trace = true
         @error_trace = true
-      end
-
-      opts.on("-h", "--help", "Show this message") do
-        puts opts
-        exit
-      end
-
-      opts.on("--no-color", "Disable colored output") do
-        @color = false
-        repl.program.color = false
-      end
-
-      opts.on("--prelude ", "Use given file as prelude") do |prelude|
-        repl.prelude = prelude
       end
     end
 
@@ -57,30 +37,10 @@ class Crystal::Command
     repl = Crystal::JIT::Repl.new
     eval_source = nil.as(String?)
 
-    parse_with_crystal_opts do |opts|
-      opts.banner = "Usage: crystal i --backend=jit [options] [programfile] [arguments]\n\nOptions:"
-
-      opts.on("-D FLAG", "--define FLAG", "Define a compile-time flag") do |flag|
-        repl.program.flags << flag
-      end
-
+    parse_repl_opts(repl, "Usage: crystal i --backend=jit [options] [programfile] [arguments]\n\nOptions:") do |opts|
       opts.on("-e SOURCE", "One-line script. Several `-e`s are concatenated.") do |source|
         eval_source ||= ""
         eval_source = "#{eval_source}#{source}\n"
-      end
-
-      opts.on("-h", "--help", "Show this message") do
-        puts opts
-        exit
-      end
-
-      opts.on("--no-color", "Disable colored output") do
-        @color = false
-        repl.program.color = false
-      end
-
-      opts.on("--prelude ", "Use given file as prelude") do |prelude|
-        repl.prelude = prelude
       end
     end
 
@@ -99,6 +59,34 @@ class Crystal::Command
 
       show_banner
       exit repl.run_file(filename, options)
+    end
+  end
+
+  # Shared option parser for both backends. Yields the `OptionParser` after
+  # adding the common flags so each caller can layer backend-specific ones.
+  private def parse_repl_opts(repl : Repl | Crystal::JIT::Repl, banner : String, &) : Nil
+    parse_with_crystal_opts do |opts|
+      opts.banner = banner
+
+      opts.on("-D FLAG", "--define FLAG", "Define a compile-time flag") do |flag|
+        repl.program.flags << flag
+      end
+
+      opts.on("-h", "--help", "Show this message") do
+        puts opts
+        exit
+      end
+
+      opts.on("--no-color", "Disable colored output") do
+        @color = false
+        repl.program.color = false
+      end
+
+      opts.on("--prelude ", "Use given file as prelude") do |prelude|
+        repl.prelude = prelude
+      end
+
+      yield opts
     end
   end
 
