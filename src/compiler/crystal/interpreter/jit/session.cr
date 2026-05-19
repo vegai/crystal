@@ -19,10 +19,13 @@ module Crystal::JIT
     @loader : Crystal::Loader? = nil
     @loaded_lib_names = Set(String).new
     @libs_initialized = false
-    @lljit : LLVM::Orc::LLJIT? = nil
-    @dylib : LLVM::Orc::JITDylib? = nil
-    @ts_ctx : LLVM::Orc::ThreadSafeContext? = nil
-    @llvm_context : LLVM::Context? = nil
+    # After `ensure_jit_initialized` runs, these are non-nil for the rest
+    # of the Session's life. `getter!` lets call sites use `lljit` / `dylib`
+    # / `ts_ctx` / `llvm_context` without restating the precondition.
+    getter! lljit : LLVM::Orc::LLJIT
+    getter! dylib : LLVM::Orc::JITDylib
+    getter! ts_ctx : LLVM::Orc::ThreadSafeContext
+    getter! llvm_context : LLVM::Context
     @registered_root_globals = Set(String).new
     @registered_root_ranges = [] of {Void*, Void*}
     @signal_bridge_installed = false
@@ -102,7 +105,7 @@ module Crystal::JIT
       @disposed = true
       uninstall_signal_bridge
       unregister_gc_roots
-      if lljit = @lljit
+      if lljit = lljit?
         lljit.dispose
         @lljit = nil
       end
@@ -383,7 +386,6 @@ module Crystal::JIT
     # Repoints `slot_name` at `target_name` with release-ordered store.
     # Release pairs with `repl_promote_to_dispatch`'s acquire load.
     private def repoint_slot(slot_name : String, target_name : String) : Nil
-      lljit = @lljit.not_nil!
       slot_addr = lljit.lookup(slot_name)
       target_addr = lljit.lookup(target_name)
       ::Atomic::Ops.store(slot_addr.as(Pointer(Void*)), target_addr, :release, true)
@@ -412,7 +414,7 @@ module Crystal::JIT
     private def check_layout_change_refusal(node : ASTNode)
       findings = LayoutChangeDetector.detect(node)
       return if findings.empty?
-      lljit = @lljit
+      lljit = lljit?
       return unless lljit
 
       seen = Set(String).new
@@ -481,7 +483,6 @@ module Crystal::JIT
     # prelude (symbol absent).
     private def install_signal_bridge
       return if @signal_bridge_installed
-      lljit = @lljit.not_nil!
       addr = lljit.lookup?("crystal_jit_notify_reaped")
       return unless addr
       bridge = Proc(LibC::PidT, Int32, Bool).new(addr, Pointer(Void).null)
@@ -493,7 +494,6 @@ module Crystal::JIT
     # are unreachable (Boehm does not scan JIT-mapped pages) and their
     # finalisers run mid-session. Dedup-by-name across submissions.
     private def register_const_globals_as_gc_roots
-      lljit = @lljit.not_nil!
       repl_state.emitted_root_globals.each do |name, size|
         next if @registered_root_globals.includes?(name)
         addr = lljit.lookup(name)
@@ -594,7 +594,7 @@ module Crystal::JIT
     end
 
     private def ensure_jit_initialized
-      return if @lljit
+      return if lljit?
 
       # Touch `target_machine` so `LLVM.init_<arch>` registers the target
       # before LLJIT looks it up - the spec binary never codegens otherwise.
@@ -668,7 +668,7 @@ module Crystal::JIT
     end
 
     private def codegen_submission(node : ASTNode, well_known_source : ASTNode?) : {CodeGenVisitor, LLVM::Module}
-      ctx = @llvm_context.not_nil!
+      ctx = llvm_context
       visitor = CodeGenVisitor.new(@program, node,
         single_module: true,
         llvm_context: ctx,
@@ -685,7 +685,7 @@ module Crystal::JIT
 
     private def emit_wrapper_function(visitor : CodeGenVisitor, llvm_mod : LLVM::Module,
                                       result_type : Crystal::Type, wants_value : Bool) : String
-      ctx = @llvm_context.not_nil!
+      ctx = llvm_context
       main = visitor.typed_fun?(llvm_mod, MAIN_NAME).not_nil!
       # First submission only; later ones see the inited globals via ORC.
       init_runtime =
@@ -724,9 +724,8 @@ module Crystal::JIT
     end
 
     private def materialize_wrapper(llvm_mod : LLVM::Module, wrapper_name : String) : Pointer(Void)
-      lljit = @lljit.not_nil!
-      tsm = LLVM::Orc::ThreadSafeModule.new(llvm_mod, @ts_ctx.not_nil!)
-      lljit.add_llvm_ir_module(@dylib.not_nil!, tsm)
+      tsm = LLVM::Orc::ThreadSafeModule.new(llvm_mod, ts_ctx)
+      lljit.add_llvm_ir_module(dylib, tsm)
       lljit.lookup(wrapper_name)
     end
 
