@@ -22,7 +22,14 @@ module Crystal::JIT
       @@at_exit_installed = true
       ::at_exit do
         @@alive.dup.each do |session|
-          session.dispose rescue nil
+          begin
+            session.dispose
+          rescue ex
+            # Best-effort drain: a failure here only matters during dev,
+            # since the process is exiting anyway. Surface it so a real
+            # bug isn't silently swallowed.
+            STDERR.puts "Crystal::JIT::Session at_exit dispose failed: #{ex.class}: #{ex.message}"
+          end
         end
       end
     end
