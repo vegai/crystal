@@ -31,7 +31,7 @@ module Crystal::JIT
       result
     end
 
-    private def collect_from(node : Crystal::ASTNode, program : Crystal::Program?, result : Array(Crystal::ASTNode))
+    private def collect_from(node : Crystal::ASTNode, program : Crystal::Program?, result : Array(Crystal::ASTNode)) : Nil
       case node
       when Crystal::Def
         if top_level_eligible?(node)
@@ -171,7 +171,7 @@ module Crystal::JIT
       true
     end
 
-    private def collect_from_class_body(cls : Crystal::ClassDef, result : Array(Crystal::ASTNode))
+    private def collect_from_class_body(cls : Crystal::ClassDef, result : Array(Crystal::ASTNode)) : Nil
       body = cls.body
       cls_path = cls.name
       case body
@@ -182,7 +182,7 @@ module Crystal::JIT
       end
     end
 
-    private def collect_instance_def(node : Crystal::ASTNode, cls_path : Crystal::Path, result : Array(Crystal::ASTNode))
+    private def collect_instance_def(node : Crystal::ASTNode, cls_path : Crystal::Path, result : Array(Crystal::ASTNode)) : Nil
       return unless node.is_a?(Crystal::Def)
       d = node.as(Crystal::Def)
       # Inside a class body, a Def with a `self` or Path receiver is a

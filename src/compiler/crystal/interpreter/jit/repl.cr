@@ -49,7 +49,7 @@ module Crystal::JIT
       @session.unregister_gc_roots
     end
 
-    def run
+    def run : Nil
       # The prompt appears immediately while the prelude compiles on
       # a dedicated thread (`Fiber::ExecutionContext::Isolated`). The
       # first `run_snippet` call blocks on `@warmup` if the user beats
@@ -347,7 +347,7 @@ module Crystal::JIT
       parse_code(File.read(filename), filename)
     end
 
-    private def parse_code(code : String, filename = "") : ASTNode
+    private def parse_code(code : String, filename : String = "") : ASTNode
       warnings = @program.warnings.dup
       warnings.infos = [] of String
       # Seed parser's outermost scope with prior-submission locals so

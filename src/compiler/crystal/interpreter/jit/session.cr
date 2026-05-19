@@ -367,7 +367,7 @@ module Crystal::JIT
       result
     end
 
-    private def run_top_level_semantic(node : ASTNode, run_graph_checks : Bool)
+    private def run_top_level_semantic(node : ASTNode, run_graph_checks : Bool) : {ASTNode, Crystal::TypeDeclarationProcessor}
       visitor = Crystal::TopLevelVisitor.new(@program)
       visitor.vars = @main_visitor.vars.dup unless @main_visitor.vars.empty?
       node.accept visitor
@@ -393,14 +393,14 @@ module Crystal::JIT
 
     # Repoints `:symbol_table:slot` at the newest versioned table once ORC
     # materialised it; otherwise first-wins LinkOnceODR masks growth.
-    private def apply_pending_symbol_table_update
+    private def apply_pending_symbol_table_update : Nil
       update = repl_state.take_symbol_table_update
       return unless update
       repoint_slot(*update)
     end
 
     # Points each dispatch slot at the new :vN body now that ORC linked it.
-    private def apply_pending_slot_updates
+    private def apply_pending_slot_updates : Nil
       repl_state.drain_slot_updates do |slot_name, body_name|
         repoint_slot(slot_name, body_name)
       end
@@ -411,7 +411,7 @@ module Crystal::JIT
     class LayoutChangeRefused < Exception
     end
 
-    private def check_layout_change_refusal(node : ASTNode)
+    private def check_layout_change_refusal(node : ASTNode) : Nil
       findings = LayoutChangeDetector.detect(node)
       return if findings.empty?
       lljit = lljit?
@@ -481,7 +481,7 @@ module Crystal::JIT
     # Wraps the JIT-emitted `crystal_jit_notify_reaped` fun in a host-side
     # Proc and installs it as the SIGCHLD bridge. No-op under `primitives`
     # prelude (symbol absent).
-    private def install_signal_bridge
+    private def install_signal_bridge : Nil
       return if @signal_bridge_installed
       addr = lljit.lookup?("crystal_jit_notify_reaped")
       return unless addr
@@ -493,7 +493,7 @@ module Crystal::JIT
     # Adds JIT-emitted const globals to Boehm's root set; without this they
     # are unreachable (Boehm does not scan JIT-mapped pages) and their
     # finalisers run mid-session. Dedup-by-name across submissions.
-    private def register_const_globals_as_gc_roots
+    private def register_const_globals_as_gc_roots : Nil
       repl_state.emitted_root_globals.each do |name, size|
         next if @registered_root_globals.includes?(name)
         addr = lljit.lookup(name)
@@ -532,7 +532,7 @@ module Crystal::JIT
       end
     end
 
-    private def load_libraries_via_lib_flags
+    private def load_libraries_via_lib_flags : Nil
       lib_flags = @program.lib_flags
       lib_flags = lib_flags.gsub(/`(.*?)`/) { `#{$1}`.chomp }
       args = Process.parse_arguments(lib_flags)
@@ -560,7 +560,7 @@ module Crystal::JIT
       @loader = loader
     end
 
-    private def load_new_libraries_via_link_annotations
+    private def load_new_libraries_via_link_annotations : Nil
       libnames = [] of String
       extra_search_paths = [] of String
       @program.link_annotations.each do |ann|
@@ -593,7 +593,7 @@ module Crystal::JIT
       end
     end
 
-    private def ensure_jit_initialized
+    private def ensure_jit_initialized : Nil
       return if lljit?
 
       # Touch `target_machine` so `LLVM.init_<arch>` registers the target
@@ -629,7 +629,7 @@ module Crystal::JIT
 
     # Pins LLJIT's TargetMachine at `CodeGenOptLevel::None`; hot reload
     # depends on call-site indirection that inlining would defeat.
-    private def configure_codegen_opt_level(builder : LLVM::Orc::LLJITBuilder)
+    private def configure_codegen_opt_level(builder : LLVM::Orc::LLJITBuilder) : Nil
       triple = @program.target_machine.triple
       target = LLVM::Target.from_triple(triple)
       tm_ref = LibLLVM.create_target_machine(

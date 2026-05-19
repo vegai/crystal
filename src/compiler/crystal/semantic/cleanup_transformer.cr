@@ -98,7 +98,7 @@ module Crystal
     # Independent invocation; resets `@transformed` so each body's
     # transform is idempotent and stops only at the `@transformed`
     # cycle detection.
-    def sweep_typed_def_bodies(types) : Nil
+    def sweep_typed_def_bodies(types : Iterator(Crystal::Type) | Enumerable(Crystal::Type)) : Nil
       @transformed = Set(Def).new.compare_by_identity
       visited = Set(Type).new.compare_by_identity
       types.each do |type|
@@ -145,12 +145,12 @@ module Crystal
     class ResidualExpandableFinder < Visitor
       getter? found = false
 
-      def visit(node : ExpandableNode)
+      def visit(node : ExpandableNode) : Bool
         @found = true
         false
       end
 
-      def visit(node : ASTNode)
+      def visit(node : ASTNode) : Bool
         !@found
       end
     end

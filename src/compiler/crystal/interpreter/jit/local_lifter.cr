@@ -8,6 +8,7 @@ module Crystal::JIT
     RESERVED_NAME_PREFIXES = {"__repl_", "__temp_"}
 
     @scope_depth : Int32 = 0
+    @known : Set(String)
 
     def initialize(@known : Set(String))
     end

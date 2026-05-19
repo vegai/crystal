@@ -17,7 +17,7 @@ module Crystal::JIT::SpecSupport
 
   # Registers stubs as prelude extras so they keep their own synthetic
   # filename rather than shifting the user code's `__LINE__`.
-  def self.apply_stubs(repl : Crystal::JIT::Repl, code) : Nil
+  def self.apply_stubs(repl : Crystal::JIT::Repl, code : String) : Nil
     STUBS.each do |name, stub|
       next if code.matches?(STUB_REGEXES[name])
       repl.prelude_extra << {stub, "(jit-spec-stub-#{name})"}
