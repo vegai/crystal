@@ -151,12 +151,11 @@ module Crystal::JIT
         node.body = yield node.body
         node
       when Expressions
-        node.expressions.each do |child|
-          next unless child.is_a?(ModuleDef)
-          child.body = yield child.body
-          return node
-        end
-        raise "BUG: wrap_runtime_with_rescue: no __REPLState ModuleDef in Expressions"
+        module_def = node.expressions.find &.is_a?(ModuleDef)
+        raise "BUG: wrap_runtime_with_rescue: no __REPLState ModuleDef in Expressions" unless module_def
+        module_def = module_def.as(ModuleDef)
+        module_def.body = yield module_def.body
+        node
       else
         raise "BUG: wrap_runtime_with_rescue: expected wrap_in_repl_state output, got #{node.class}"
       end
