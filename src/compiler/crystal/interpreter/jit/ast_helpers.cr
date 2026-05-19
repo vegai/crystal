@@ -40,5 +40,14 @@ module Crystal::JIT
       str.at(loc) if loc
       Crystal::Call.new(nil, method, [str] of Crystal::ASTNode).at(loc)
     end
+
+    # `<obj>.<method>(*args)` at `loc`. `args` defaults to empty so
+    # zero-arg calls (`err.class`, `err.message`) don't have to spell
+    # out an empty array.
+    def call_with_receiver(obj : Crystal::ASTNode, method : String,
+                           loc : Crystal::Location,
+                           args : Array(Crystal::ASTNode) = [] of Crystal::ASTNode) : Crystal::Call
+      Crystal::Call.new(obj, method, args).at(loc)
+    end
   end
 end

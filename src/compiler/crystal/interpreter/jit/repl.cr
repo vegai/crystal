@@ -275,8 +275,8 @@ module Crystal::JIT
       loc = Location.new("(jit-rescue)", 1, 1)
       err_name = "__jit_repl_err"
       err_var = Var.new(err_name).at(loc)
-      class_call = Call.new(err_var.clone.at(loc).as(ASTNode), "class").at(loc)
-      msg_call = Call.new(err_var.clone.at(loc).as(ASTNode), "message").at(loc)
+      class_call = AstHelpers.call_with_receiver(err_var.clone.at(loc), "class", loc)
+      msg_call = AstHelpers.call_with_receiver(err_var.clone.at(loc), "message", loc)
       full = StringInterpolation.new([
         StringLiteral.new(prefix).at(loc).as(ASTNode),
         msg_call.as(ASTNode),
@@ -284,10 +284,10 @@ module Crystal::JIT
         class_call.as(ASTNode),
         StringLiteral.new(")").at(loc).as(ASTNode),
       ]).at(loc)
-      puts_call = Call.new(Path.new("STDERR").at(loc).as(ASTNode), "puts", [full.as(ASTNode)]).at(loc)
+      puts_call = AstHelpers.call_with_receiver(Path.new("STDERR").at(loc), "puts", loc, [full.as(ASTNode)])
       rescue_body =
         if exit_on_error
-          exit_call = Call.new(Path.new("LibC").at(loc).as(ASTNode), "exit", [NumberLiteral.new("1", :i32).at(loc).as(ASTNode)]).at(loc)
+          exit_call = AstHelpers.call_with_receiver(Path.new("LibC").at(loc), "exit", loc, [NumberLiteral.new("1", :i32).at(loc).as(ASTNode)])
           Expressions.new([puts_call.as(ASTNode), exit_call.as(ASTNode)])
         else
           puts_call
