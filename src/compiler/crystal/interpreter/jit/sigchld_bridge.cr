@@ -6,9 +6,9 @@ module Crystal::JIT
   # only touches the host's @@waiting; the JIT waiter then blocks forever.
   # Session#install_signal_bridge takes the fun's address via
   # LLJIT#lookup and installs it as the host's external_reaper.
-  JIT_SIGCHLD_BRIDGE_SOURCE = <<-'CRYSTAL'
-    fun crystal_jit_notify_reaped(pid : LibC::PidT, exit_code : Int32) : Bool
-      Crystal::System::SignalChildHandler.notify_reaped(pid, exit_code)
-    end
-  CRYSTAL
+  #
+  # The body lives in `embedded_sources/sigchld_bridge_source.cr` for
+  # editor tooling. The subdirectory keeps it out of
+  # `require "./interpreter/jit/*"`.
+  JIT_SIGCHLD_BRIDGE_SOURCE = {{ read_file("#{__DIR__}/embedded_sources/sigchld_bridge_source.cr") }}
 end
