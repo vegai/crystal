@@ -43,4 +43,16 @@ class LLVM::Orc::LLJIT
     LLVM.assert LibLLVM.orc_lljit_lookup(self, out address, name.check_no_null_byte)
     Pointer(Void).new(address)
   end
+
+  # Like `lookup` but returns `nil` instead of raising when the symbol
+  # is not present in the dylib.
+  def lookup?(name : String) : Void*?
+    err = LibLLVM.orc_lljit_lookup(self, out address, name.check_no_null_byte)
+    if err
+      LibLLVM.dispose_error_message(LibLLVM.get_error_message(err))
+      nil
+    else
+      Pointer(Void).new(address)
+    end
+  end
 end

@@ -6,6 +6,7 @@ lib LibLLVM
 
   fun orc_create_lljit_builder = LLVMOrcCreateLLJITBuilder : OrcLLJITBuilderRef
   fun orc_dispose_lljit_builder = LLVMOrcDisposeLLJITBuilder(builder : OrcLLJITBuilderRef)
+  fun orc_lljit_builder_set_jit_target_machine_builder = LLVMOrcLLJITBuilderSetJITTargetMachineBuilder(builder : OrcLLJITBuilderRef, jtmb : OrcJITTargetMachineBuilderRef)
 
   fun orc_create_lljit = LLVMOrcCreateLLJIT(result : OrcLLJITRef*, builder : OrcLLJITBuilderRef) : ErrorRef
   fun orc_dispose_lljit = LLVMOrcDisposeLLJIT(j : OrcLLJITRef) : ErrorRef

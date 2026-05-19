@@ -9,6 +9,10 @@ lib LibLLVM
   alias OrcSymbolPredicate = Void*, OrcSymbolStringPoolEntryRef -> Int
   alias OrcThreadSafeContextRef = Void*
   alias OrcThreadSafeModuleRef = Void*
+  alias OrcJITTargetMachineBuilderRef = Void*
+
+  fun orc_jit_target_machine_builder_create_from_target_machine = LLVMOrcJITTargetMachineBuilderCreateFromTargetMachine(tm : TargetMachineRef) : OrcJITTargetMachineBuilderRef
+  fun orc_dispose_jit_target_machine_builder = LLVMOrcDisposeJITTargetMachineBuilder(jtmb : OrcJITTargetMachineBuilderRef)
 
   fun orc_create_dynamic_library_search_generator_for_process = LLVMOrcCreateDynamicLibrarySearchGeneratorForProcess(
     result : OrcDefinitionGeneratorRef*, global_prefx : Char,
