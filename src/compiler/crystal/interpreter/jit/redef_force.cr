@@ -39,8 +39,8 @@ module Crystal::JIT
     private def collect_from(node : ASTNode, program : Program?, result : Array(ASTNode)) : Nil
       case node
       when Def
-        if top_level_eligible?(node)
-          result << synthesize_top_level_or_class_method(node, fresh_force_loc)
+        if restrictions = top_level_eligible_restrictions(node)
+          result << synthesize_top_level_or_class_method(node, restrictions, fresh_force_loc)
         elsif tuples = top_level_unrestricted_with_prior_instances(node, program)
           # `prior_arg_types` replay concrete tuples that earlier call sites
           # populated in `Program#def_instances` for the OLD def, so the new
@@ -63,7 +63,8 @@ module Crystal::JIT
     private def top_level_block_arg_synthetic(d : Def) : ASTNode?
       return nil if d.double_splat || d.abstract? || d.macro_def?
       return nil unless d.receiver.nil? || d.receiver.is_a?(Path)
-      return nil unless arg_restrictions_present?(d)
+      restrictions = arg_restrictions(d)
+      return nil unless restrictions
       block_arg = d.block_arg
       return nil unless block_arg
       restriction = block_arg.restriction
@@ -99,7 +100,7 @@ module Crystal::JIT
       block.at(loc)
 
       obj = d.receiver.try(&.clone)
-      call = Call.new(obj, d.name, uninitialized_call_args(d, loc))
+      call = Call.new(obj, d.name, uninitialized_call_args(restrictions, loc))
       call.block = block
       call.at(loc)
 
@@ -191,21 +192,25 @@ module Crystal::JIT
       # care about instance methods, which have a nil receiver.
       return unless d.receiver.nil?
       return unless def_supportable?(d)
-      return unless arg_restrictions_present?(d)
+      restrictions = arg_restrictions(d)
+      return unless restrictions
       # Skip `initialize` and any non-public visibility; the synthetic
       # is `ClassName.allocate.method(...)` at top level, which would
       # try to invoke a protected/private method from outside the
       # class body and trip semantic's visibility check.
       return if d.name == "initialize"
       return unless d.visibility.public?
-      result << synthesize_instance_method(d, cls_path, fresh_force_loc)
+      result << synthesize_instance_method(d, cls_path, restrictions, fresh_force_loc)
     end
 
-    private def top_level_eligible?(d : Def) : Bool
-      return false unless def_supportable?(d)
+    # `Array(ASTNode)?` of arg restrictions when every arg has one (the
+    # shape `RedefForce` can synthesise an inert call for); nil otherwise.
+    # Callers that just want the boolean check it for truthiness.
+    private def top_level_eligible_restrictions(d : Def) : Array(ASTNode)?
+      return nil unless def_supportable?(d)
       receiver = d.receiver
-      return false unless receiver.nil? || receiver.is_a?(Path)
-      arg_restrictions_present?(d)
+      return nil unless receiver.nil? || receiver.is_a?(Path)
+      arg_restrictions(d)
     end
 
     # Skip shapes RedefForce can't synthesise an inert call for. The
@@ -215,16 +220,22 @@ module Crystal::JIT
       !(d.double_splat || d.block_arg || d.block_arity || d.abstract? || d.macro_def?)
     end
 
-    private def arg_restrictions_present?(d : Def) : Bool
-      d.args.all? { |arg| !arg.restriction.nil? }
+    private def arg_restrictions(d : Def) : Array(ASTNode)?
+      restrictions = [] of ASTNode
+      d.args.each do |arg|
+        restriction = arg.restriction
+        return nil unless restriction
+        restrictions << restriction
+      end
+      restrictions
     end
 
     private def fresh_force_loc : Location
       Location.new("(jit-redef-force)", fresh_counter, 1)
     end
 
-    private def synthesize_top_level_or_class_method(d : Def, loc : Location) : ProcPointer
-      args = d.args.map { |arg| arg.restriction.not_nil!.clone.as(ASTNode) }
+    private def synthesize_top_level_or_class_method(d : Def, restrictions : Array(ASTNode), loc : Location) : ProcPointer
+      args = restrictions.map { |r| r.clone.as(ASTNode) }
       obj = d.receiver.try(&.clone)
       ProcPointer.new(obj, d.name, args).at(loc)
     end
@@ -238,19 +249,19 @@ module Crystal::JIT
       ProcPointer.new(nil, d.name, args).at(loc)
     end
 
-    private def synthesize_instance_method(d : Def, cls_path : Path, loc : Location) : ProcLiteral
+    private def synthesize_instance_method(d : Def, cls_path : Path, restrictions : Array(ASTNode), loc : Location) : ProcLiteral
       allocate_call = Call.new(cls_path.clone.as(ASTNode), "allocate").at(loc)
-      call = Call.new(allocate_call, d.name, uninitialized_call_args(d, loc)).at(loc)
+      call = Call.new(allocate_call, d.name, uninitialized_call_args(restrictions, loc)).at(loc)
       proc_def = Def.new("->", [] of Arg, call).at(loc)
       ProcLiteral.new(proc_def).at(loc)
     end
 
-    # Builds `[uninitialized T1, uninitialized T2, ...]` from `d.args`
-    # restrictions, for use as call args inside an inert synthetic.
-    private def uninitialized_call_args(d : Def, loc : Location) : Array(ASTNode)
-      d.args.map do |arg|
+    # Builds `[uninitialized T1, uninitialized T2, ...]` from the
+    # restriction list, for use as call args inside an inert synthetic.
+    private def uninitialized_call_args(restrictions : Array(ASTNode), loc : Location) : Array(ASTNode)
+      restrictions.map do |restriction|
         uvar = Var.new(restriction_temp_name).at(loc)
-        type_path = arg.restriction.not_nil!.clone.at(loc)
+        type_path = restriction.clone.at(loc)
         UninitializedVar.new(uvar, type_path).at(loc).as(ASTNode)
       end
     end

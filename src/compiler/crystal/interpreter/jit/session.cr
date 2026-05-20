@@ -28,7 +28,7 @@ module Crystal::JIT
     # Built by `ensure_jit_initialized`. Pre-init submissions can't
     # have live instances, so the call-site `try` is the natural no-op.
     @layout_guard : LayoutRefusalGuard? = nil
-    @dispatch_updater : DispatchSlotUpdater? = nil
+    getter! dispatch_updater : DispatchSlotUpdater
     # Flipped by `Repl` when the warmup thread finishes touching shared
     # state (`@program.string_pool`, types, defs). `auto_complete`'s
     # method-name lookup walks `@program.types`, so reads must be gated
@@ -423,7 +423,8 @@ module Crystal::JIT
     private def emit_wrapper_function(visitor : CodeGenVisitor, llvm_mod : LLVM::Module,
                                       result_type : Crystal::Type, wants_value : Bool) : String
       ctx = llvm_context
-      main = visitor.typed_fun?(llvm_mod, MAIN_NAME).not_nil!
+      main = visitor.typed_fun?(llvm_mod, MAIN_NAME) ||
+             raise "BUG: __crystal_main not emitted into submission module"
       # First submission only; later ones see the inited globals via ORC.
       init_runtime =
         if @submission_counter == 1
@@ -467,7 +468,7 @@ module Crystal::JIT
     end
 
     private def apply_post_materialization_fixups : Nil
-      @dispatch_updater.not_nil!.apply_pending(repl_state)
+      dispatch_updater.apply_pending(repl_state)
       register_const_globals_as_gc_roots
       install_signal_bridge
     end
