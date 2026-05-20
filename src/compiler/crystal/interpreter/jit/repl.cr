@@ -10,14 +10,9 @@ module Crystal::JIT
     # the user code's `__LINE__`.
     getter prelude_extra : Array({String, String}) = [] of {String, String}
 
-    # Soft cap on the per-source `@wrapper_cache`. 256 covers a typical
-    # interactive session; a paste-heavy or test-driver loop reaching the
-    # cap drops the oldest entry per insert (insertion-order LRU).
-    WRAPPER_CACHE_LIMIT = 256
-
     @session : Session
     @prelude_ast : ASTNode? = nil
-    @wrapper_cache : Hash(String, Session::CompiledWrapper) = {} of String => Session::CompiledWrapper
+    @wrapper_cache = WrapperCache.new
     @submission_count : Int32 = 0
     @prelude_semantic_in_progress : Bool = false
     @session_initialized : Bool = false
@@ -174,15 +169,13 @@ module Crystal::JIT
       if AstShape.any_defines_value?(input_node)
         @wrapper_cache.clear
         input_node = @session.redef_force.inject(input_node, @program)
-      elsif cached = @wrapper_cache.delete(code)
-        @wrapper_cache[code] = cached
+      elsif cached = @wrapper_cache[code]?
         return @session.invoke(cached)
       end
 
       wrapper = compile_input(input_node)
       mark_submission_compiled
-      @wrapper_cache.shift if @wrapper_cache.size >= WRAPPER_CACHE_LIMIT
-      @wrapper_cache[code] = wrapper
+      @wrapper_cache.put(code, wrapper)
       @session.invoke(wrapper)
     rescue ex
       reset_on_pre_success_error
