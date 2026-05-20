@@ -39,21 +39,32 @@ module Crystal::JIT
     private def collect_from(node : ASTNode, program : Program?, result : Array(ASTNode)) : Nil
       case node
       when Def
-        if restrictions = top_level_eligible_restrictions(node)
-          result << synthesize_top_level_or_class_method(node, restrictions, fresh_force_loc)
-        elsif tuples = top_level_unrestricted_with_prior_instances(node, program)
-          # `prior_arg_types` replay concrete tuples that earlier call sites
-          # populated in `Program#def_instances` for the OLD def, so the new
-          # body gets emitted for the same shapes when arg restrictions are
-          # absent on the AST.
-          tuples.each { |arg_types| result << synthesize_top_level_with_prior_types(node, arg_types, fresh_force_loc) }
-        elsif prebuilt = top_level_block_arg_synthetic(node)
-          # A3: block-arg redefs build their own Call+Block synthetic; the
-          # other branches return ProcPointer / ProcLiteral built here.
-          result << prebuilt
-        end
+        synthesize_for_def(node, program, result)
       when ClassDef
         collect_from_class_body(node, result) if instance_methods_addressable?(node, program)
+      end
+    end
+
+    # Strategy precedence for a top-level Def: restricted (top-level eligible)
+    # > unrestricted-with-prior-instance replay > block-arg synthetic.
+    # First strategy that fires writes to `result` and the rest are skipped.
+    private def synthesize_for_def(d : Def, program : Program?, result : Array(ASTNode)) : Nil
+      if restrictions = top_level_eligible_restrictions(d)
+        result << synthesize_top_level_or_class_method(d, restrictions, fresh_force_loc)
+        return
+      end
+      if tuples = top_level_unrestricted_with_prior_instances(d, program)
+        # `prior_arg_types` replay concrete tuples that earlier call sites
+        # populated in `Program#def_instances` for the OLD def, so the new
+        # body gets emitted for the same shapes when arg restrictions are
+        # absent on the AST.
+        tuples.each { |arg_types| result << synthesize_top_level_with_prior_types(d, arg_types, fresh_force_loc) }
+        return
+      end
+      # A3: block-arg redefs build their own Call+Block synthetic; the
+      # other branches return ProcPointer / ProcLiteral built here.
+      if prebuilt = top_level_block_arg_synthetic(d)
+        result << prebuilt
       end
     end
 

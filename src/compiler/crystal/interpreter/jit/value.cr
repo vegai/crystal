@@ -4,8 +4,9 @@ module Crystal::JIT
   # read those bytes back. Mirrors the shape of `Crystal::Repl::Value` so
   # the existing interpreter spec helper can compare values uniformly.
   struct Value
-    # Reference layouts start with `type_id`; instance vars sit after it.
-    TYPE_ID_SLOT_COUNT = 1
+    # Reference layouts start with a `type_id` header slot; instance
+    # vars sit after it.
+    HEADER_SLOT_COUNT = 1
 
     alias Inspected = Nil | Bool | Char | Int::Primitive | Float::Primitive | String | Pointer(UInt8) | Crystal::Type
 
@@ -64,6 +65,13 @@ module Crystal::JIT
         # mismatched id tables.
         type_id = @pointer.as(Int32*).value
         @program.llvm_id.type_from_id(type_id) || type
+      when Crystal::MixedUnionType
+        # Codegen writes `(Int32 type_id, max-member bytes)` for a
+        # union result; resolve to the active member's Value and
+        # forward. Mirrors the bytecode interpreter (`interpreter/value.cr`).
+        type_id = @pointer.as(Int32*).value
+        runtime = @program.llvm_id.type_from_id(type_id) || type
+        Value.new(@pointer + sizeof(Pointer(UInt8)), runtime, @program).value
       else
         @pointer
       end
@@ -144,7 +152,7 @@ module Crystal::JIT
       if ivars.size > 0
         instance_ty = @program.llvm_typer.llvm_struct_type(type)
         ivars.each_with_index do |(name, ivar), idx|
-          offset = @program.llvm_typer.offset_of(instance_ty, idx + TYPE_ID_SLOT_COUNT)
+          offset = @program.llvm_typer.offset_of(instance_ty, idx + HEADER_SLOT_COUNT)
           io << ' '
           io << name
           io << '='

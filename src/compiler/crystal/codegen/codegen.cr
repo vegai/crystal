@@ -1300,7 +1300,9 @@ module Crystal
       global = declare_const(const)
       const_type = const.value.type
       llvm_typ = llvm_type(const_type)
-      global.initializer = llvm_typ.null
+      # `declare_const` already seeded the LinkOnceODR initializer; the
+      # runtime `store @last, global` below overwrites it before any
+      # cross-submission read.
       request_value(value)
       if const_type.passed_by_value?
         @last = load llvm_typ, @last
