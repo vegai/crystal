@@ -3,7 +3,11 @@
 # Build the compiler with interpreter support, then run this file:
 #
 #   make crystal interpreter=1 progress=1
-#   ./bin/crystal run samples/jit_hot_reload.cr
+#   ./bin/crystal run -Dpreview_mt samples/jit_hot_reload.cr
+#
+# `-Dpreview_mt` matches the flag the compiler itself is built with
+# (see Makefile) and skips kernel.cr's non-preview_mt after-fork
+# branch, which still references the deprecated `Random::DEFAULT`.
 #
 # The script drives a `Crystal::JIT::Repl` programmatically and prints
 # each submission's value. The point is that the *caller* method is
