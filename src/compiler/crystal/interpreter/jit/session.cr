@@ -1,37 +1,9 @@
 module Crystal::JIT
   class Session
-    # Live Sessions pinned so Builder disposal order stays in our hands.
-    # `Repl#finalize` cannot dispose us directly because LLVM teardown
-    # is not safe from the Boehm finalizer thread; callers (typically
-    # specs via `Crystal::JIT::SpecSupport.dispose_all_sessions`) walk
-    # this list explicitly. Drained on `dispose`; interactive use only
-    # drains on a clean exit. See PROTOTYPE_STATUS.md "Known issues".
-    @@alive = [] of Session
-    @@at_exit_installed = false
-
+    # Convenience forwarder so callers (specs, host `at_exit` hooks)
+    # don't need to reach for `SessionRegistry`.
     def self.each_alive(&block : Session ->) : Nil
-      @@alive.dup.each(&block)
-    end
-
-    # Arms (once) a host-side `at_exit` that disposes any Session still
-    # pinned in `@@alive`. Closes the interactive-only-clean-exit gap so
-    # a process exit without explicit `Repl#reset` still tears down JIT
-    # pages on the main thread (where LLVM teardown is safe).
-    def self.ensure_at_exit_drain : Nil
-      return if @@at_exit_installed
-      @@at_exit_installed = true
-      ::at_exit do
-        @@alive.dup.each do |session|
-          begin
-            session.dispose
-          rescue ex
-            # Best-effort drain: a failure here only matters during dev,
-            # since the process is exiting anyway. Surface it so a real
-            # bug isn't silently swallowed.
-            STDERR.puts "Crystal::JIT::Session at_exit dispose failed: #{ex.class}: #{ex.message}"
-          end
-        end
-      end
+      SessionRegistry.each_alive(&block)
     end
 
     getter program : Program
@@ -72,8 +44,7 @@ module Crystal::JIT
       @main_visitor = MainVisitor.new(@program)
       @library_loader = LibraryLoader.new(@program)
       install_program_args(["jit"])
-      @@alive << self
-      Session.ensure_at_exit_drain
+      SessionRegistry.register(self)
     end
 
     # `Repl#kick_off_warmup` arms this before spawning the background fiber;
@@ -131,52 +102,18 @@ module Crystal::JIT
         @lljit = nil
       end
       @dylib = nil
-      @@alive.delete(self)
+      SessionRegistry.unregister(self)
     end
 
-    # Lifts top-level locals to class vars on `__REPLState` so they
-    # persist across submissions, then wraps the body in `module
-    # __REPLState`. `require`s hoist out as siblings of the wrapper.
+    # Forwards to `ReplStateWrap` which owns the AST rewrite; this method
+    # remains as the public Session entrypoint so callers (and specs)
+    # don't reach across into the implementation module.
     def wrap_in_repl_state(node : ASTNode) : ASTNode
-      inner = node.transform(LocalLifter.new(@repl_locals))
-
-      partitioner = ModuleWrapPartitioner.new
-      partitioner.classify(inner)
-
-      module_def = ModuleDef.new(Path.new("__REPLState"), Expressions.from(partitioner.body))
-      if partitioner.outer.empty?
-        module_def
-      else
-        Expressions.from(partitioner.outer.concat([module_def.as(ASTNode)]))
-      end
+      ReplStateWrap.wrap(node, @repl_locals)
     end
 
-    # Wraps consecutive runtime statements in the `__REPLState` body
-    # with `handler`, leaving declarations at body level.
     def wrap_runtime_with_rescue(node : ASTNode, handler : ASTNode -> ASTNode) : ASTNode
-      rewrite_repl_state_body(node) do |body|
-        RuntimeRescueGrouper.group(body, handler)
-      end
-    end
-
-    # Replaces the body of the `__REPLState` ModuleDef found inside `node`
-    # with the result of `block.call(body)`. Handles both shapes produced
-    # by `wrap_in_repl_state`: a bare `ModuleDef` and an `Expressions`
-    # containing requires followed by the `ModuleDef`.
-    private def rewrite_repl_state_body(node : ASTNode, & : ASTNode -> ASTNode) : ASTNode
-      case node
-      when ModuleDef
-        node.body = yield node.body
-        node
-      when Expressions
-        module_def = node.expressions.find &.is_a?(ModuleDef)
-        raise "BUG: wrap_runtime_with_rescue: no __REPLState ModuleDef in Expressions" unless module_def
-        module_def = module_def.as(ModuleDef)
-        module_def.body = yield module_def.body
-        node
-      else
-        raise "BUG: wrap_runtime_with_rescue: expected wrap_in_repl_state output, got #{node.class}"
-      end
+      ReplStateWrap.wrap_runtime_with_rescue(node, handler)
     end
 
     # Dup so the parser's `push_var_name` does not bleed into the lifter's set.
@@ -202,61 +139,6 @@ module Crystal::JIT
         matches << name if name.starts_with?(prefix)
       end
       matches
-    end
-
-    # Splits a submission body into siblings of the `module __REPLState` wrap
-    # (`outer`) and members of its body (`body`). Requires hoist out; the rest
-    # stays inside the wrapper.
-    private class ModuleWrapPartitioner
-      getter outer = [] of ASTNode
-      getter body = [] of ASTNode
-
-      def classify(node : ASTNode) : Nil
-        case node
-        when Expressions
-          node.expressions.each { |child| classify(child) }
-        when Require
-          @outer << node
-        else
-          @body << node
-        end
-      end
-    end
-
-    # Walks a flat body sequence and groups consecutive non-declaration
-    # nodes through `handler` (which builds an `ExceptionHandler` around its
-    # input). Declarations remain at their original position so the JIT's
-    # codegen doesn't trip on `def`/`class`/`@@__repl_*=…` inside a rescue.
-    private class RuntimeRescueGrouper
-      def self.group(body : ASTNode, handler : ASTNode -> ASTNode) : ASTNode
-        return body if body.is_a?(Nop)
-        rewritten = [] of ASTNode
-        runtime_group = [] of ASTNode
-        children =
-          case body
-          when Expressions
-            body.expressions
-          else
-            [body]
-          end
-        children.each do |child|
-          if AstShape.declaration?(child)
-            flush_group(rewritten, runtime_group, handler)
-            rewritten << child
-          else
-            runtime_group << child
-          end
-        end
-        flush_group(rewritten, runtime_group, handler)
-        Expressions.from(rewritten)
-      end
-
-      private def self.flush_group(rewritten : Array(ASTNode), runtime_group : Array(ASTNode), handler : ASTNode -> ASTNode) : Nil
-        return if runtime_group.empty?
-        grouped = runtime_group.size == 1 ? runtime_group[0] : Expressions.new(runtime_group.dup)
-        rewritten << handler.call(grouped)
-        runtime_group.clear
-      end
     end
 
     # Wrapper handle returned by `compile`; re-`invoke`-able without codegen.
