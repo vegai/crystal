@@ -5,6 +5,16 @@ module Crystal
   # `interpreter/jit/local_lifter.cr`) writes it.
   REPL_LIFTED_PREFIX = "@@__repl_"
 
+  # Mangled-name suffixes used by JIT codegen so the same string spelling
+  # doesn't drift across files. `:slot` is the dispatch slot a stub loads
+  # and tail-calls through; `:v#{N}` is the per-version body name; the
+  # `:instantiated` flag records whether a layout-bearing type has live
+  # instances; the `~` prefix marks internal-only fun names.
+  REPL_SLOT_SUFFIX            = ":slot"
+  REPL_VERSION_SUFFIX_PREFIX  = ":v"
+  REPL_INSTANTIATED_SUFFIX    = ":instantiated"
+  REPL_INTERNAL_FUN_PREFIX    = "~"
+
   # Per-session state for the JIT REPL. AOT codegen leaves it nil.
   class ReplState
     # target_defs / FunDefs / module globals emitted by a prior

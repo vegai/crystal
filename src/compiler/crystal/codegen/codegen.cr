@@ -475,7 +475,7 @@ module Crystal
     # `:vN` suffix.
     private def symbol_table_name : String
       return SYMBOL_TABLE_NAME unless rs = @repl_state
-      @repl_symbol_table_name ||= "#{SYMBOL_TABLE_NAME}:v#{rs.bump_symbol_table_version}"
+      @repl_symbol_table_name ||= "#{SYMBOL_TABLE_NAME}#{Crystal::REPL_VERSION_SUFFIX_PREFIX}#{rs.bump_symbol_table_version}"
     end
 
     # Callers must have checked `@program.symbols` is non-empty (either
@@ -2416,7 +2416,7 @@ module Crystal
     end
 
     def self.repl_instantiated_flag_name(type : Crystal::Type) : String
-      "@\"#{type.llvm_name}:instantiated\""
+      "@\"#{type.llvm_name}#{Crystal::REPL_INSTANTIATED_SUFFIX}\""
     end
 
     def pre_initialize_aggregate(type, struct_type, ptr)

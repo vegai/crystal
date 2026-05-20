@@ -80,12 +80,12 @@ class Crystal::CodeGenVisitor
     if existing_version = rs.emitted_stub_version?(mangled_name)
       new_version = existing_version + 1
       rs.set_emitted_stub_version(mangled_name, new_version)
-      body_versioned_name = "#{mangled_name}:v#{new_version}"
-      rs.queue_slot_update("#{mangled_name}:slot", body_versioned_name)
+      body_versioned_name = "#{mangled_name}#{Crystal::REPL_VERSION_SUFFIX_PREFIX}#{new_version}"
+      rs.queue_slot_update("#{mangled_name}#{Crystal::REPL_SLOT_SUFFIX}", body_versioned_name)
       {emit_body, false, body_versioned_name}
     else
       rs.set_emitted_stub_version(mangled_name, 1)
-      {emit_body, true, "#{mangled_name}:v1"}
+      {emit_body, true, "#{mangled_name}#{Crystal::REPL_VERSION_SUFFIX_PREFIX}1"}
     end
   end
 
@@ -330,7 +330,7 @@ class Crystal::CodeGenVisitor
   private def install_repl_dispatch_stub(canonical_name : String, body_fn : LLVM::Function, body_fn_type : LLVM::Type) : Nil
     ptr_type = @llvm_context.void_pointer
 
-    slot_name = "#{canonical_name}:slot"
+    slot_name = "#{canonical_name}#{Crystal::REPL_SLOT_SUFFIX}"
     slot = @llvm_mod.globals.add(ptr_type, slot_name)
     slot.linkage = LLVM::Linkage::LinkOnceODR
     slot.initializer = body_fn.to_value
