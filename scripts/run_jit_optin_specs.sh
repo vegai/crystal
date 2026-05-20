@@ -8,14 +8,19 @@
 # Exits non-zero if any spec fails. Runs all specs even if earlier
 # ones fail so a single regression doesn't mask the rest.
 #
-# One spec is skipped here as known-flaky:
+# Three opt-in specs are intentionally excluded from this runner; each
+# is still gated by its `CRYSTAL_JIT_*_SPEC=1` env var so a developer
+# can run it manually:
 #   - jit_top_level_reassign_spec: under `--location` filtering the
 #     spec runner reports 0 examples maybe-3-times-out-of-4 even with
 #     the env gate set; the spec passes reliably when invoked
 #     standalone (without `--location`). Likely a `pending!` /
 #     line-filter interaction in the spec runner.
-# It remains in the spec tree under its `CRYSTAL_JIT_*_SPEC=1` gate so
-# a developer can still run it manually.
+#   - jit_loop_bench_spec: a wall-clock benchmark (100M loops). Runs to
+#     completion but takes 30s+ and isn't a regression gate.
+#   - jit_bigdecimal_spec: loads the full prelude via `require "big"`,
+#     which clashes with the full-prelude multi-Repl wedge if any
+#     other prelude-loading spec ran in the same process.
 
 BIN="${1:-.build/interpreter_spec}"
 
