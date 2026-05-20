@@ -38,9 +38,7 @@ module Crystal::JIT
     # Top-level local names seen in prior submissions. `LocalLifter` mutates.
     @repl_locals = Set(String).new
     @submission_counter = 0
-    @loader : Crystal::Loader? = nil
-    @loaded_lib_names = Set(String).new
-    @libs_initialized = false
+    @library_loader : LibraryLoader
     # After `ensure_jit_initialized` runs, these are non-nil for the rest
     # of the Session's life. `getter!` lets call sites use `lljit` / `dylib`
     # / `ts_ctx` / `llvm_context` without restating the precondition.
@@ -71,6 +69,7 @@ module Crystal::JIT
     def initialize(@program : Program)
       @program.enable_repl_state!
       @main_visitor = MainVisitor.new(@program)
+      @library_loader = LibraryLoader.new(@program)
       install_program_args(["jit"])
       @@alive << self
       Session.ensure_at_exit_drain
@@ -347,12 +346,14 @@ module Crystal::JIT
       {walked, type_graph_dirty}
     end
 
-    # Idempotent lib-loader. The first dirty submission (or the first
-    # submission overall) triggers; later calls early-return.
+    # First submission bootstraps; later dirty submissions pick up new
+    # `@[Link]` annotations; later clean submissions are a no-op.
     private def ensure_libs_loaded(type_graph_dirty : Bool) : Nil
-      return if !type_graph_dirty && @libs_initialized
-      ensure_libraries_loaded
-      @libs_initialized = true
+      if @library_loader.bootstrapped?
+        @library_loader.pick_up_new_link_annotations if type_graph_dirty
+      else
+        @library_loader.bootstrap
+      end
     end
 
     # Same phases as `Program#semantic`, but `AbstractDefChecker` +
@@ -450,78 +451,6 @@ module Crystal::JIT
         func = Proc(Nil).new(wrapper.wrapper_ptr, Pointer(Void).null)
         func.call
         Value.new(Pointer(UInt8).null, wrapper.result_type, @program)
-      end
-    end
-
-    # Dlopens `@[Link]` libraries so ORC's process resolver finds them.
-    # First call evaluates `lib_flags` (forks pkg-config; can race
-    # MT/EC scheduler threads); later calls walk `link_annotations`.
-    private def ensure_libraries_loaded
-      if @loader.nil?
-        load_libraries_via_lib_flags
-      else
-        load_new_libraries_via_link_annotations
-      end
-    end
-
-    # Partitions `-L<dir>` and `-l<name>` tokens out of a stream and
-    # appends them onto the two accumulators. Other tokens are ignored.
-    private def partition_lib_link_tokens(tokens, extra_search_paths : Array(String), libnames : Array(String)) : Nil
-      tokens.each do |token|
-        if token.starts_with?("-L")
-          extra_search_paths << token[2..]
-        elsif token.starts_with?("-l")
-          libnames << token[2..]
-        end
-      end
-    end
-
-    private def load_libraries_via_lib_flags : Nil
-      lib_flags = @program.lib_flags
-      lib_flags = lib_flags.gsub(/`(.*?)`/) { `#{$1}`.chomp }
-      args = Process.parse_arguments(lib_flags)
-      unless @program.has_flag?("win32") && @program.has_flag?("gnu")
-        args.delete("-lgc")
-      end
-
-      extra_search_paths = [] of String
-      libnames = [] of String
-      partition_lib_link_tokens(args, extra_search_paths, libnames)
-
-      search_paths = extra_search_paths + Crystal::Loader.default_search_paths
-      loader = Crystal::Loader.new(search_paths)
-      loader.load_current_program_handle
-      libnames.each do |name|
-        loader.load_library?(name)
-        @loaded_lib_names << name
-      end
-      @loader = loader
-    end
-
-    private def load_new_libraries_via_link_annotations : Nil
-      libnames = [] of String
-      extra_search_paths = [] of String
-      @program.link_annotations.each do |ann|
-        if ldflags = ann.ldflags
-          partition_lib_link_tokens(ldflags.split, extra_search_paths, libnames)
-        end
-        if name = ann.lib
-          libnames << name
-        end
-      end
-
-      unless @program.has_flag?("win32") && @program.has_flag?("gnu")
-        libnames.delete("gc")
-      end
-
-      loader = @loader.not_nil!
-      extra_search_paths.each do |path|
-        loader.search_paths << path unless loader.search_paths.includes?(path)
-      end
-      libnames.each do |name|
-        next if @loaded_lib_names.includes?(name)
-        loader.load_library?(name)
-        @loaded_lib_names << name
       end
     end
 
