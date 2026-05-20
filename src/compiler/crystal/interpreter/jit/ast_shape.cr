@@ -63,11 +63,31 @@ module Crystal::JIT
     end
 
     # Walks `node` and yields each visited descendant (and `node` itself)
-    # to the block, returning true on the first match. Short-circuits via
-    # `BoolFlagVisitor`. Use this instead of restating the
-    # `BoolFlagVisitor.found_in?(node) { ... }` pattern at every call site.
+    # to the block, returning true on the first match. The inner visitor
+    # short-circuits the walk once `@found` flips so the rest of the AST
+    # stays untouched.
     def any_descendant?(node : Crystal::ASTNode, &predicate : Crystal::ASTNode -> Bool) : Bool
-      BoolFlagVisitor.found_in?(node, &predicate)
+      visitor = MatchFinder.new(predicate)
+      node.accept(visitor)
+      visitor.found
+    end
+
+    private class MatchFinder < Crystal::Visitor
+      property found = false
+
+      def initialize(@predicate : Crystal::ASTNode -> Bool)
+      end
+
+      # Returning false from the `Visitor` contract skips children of
+      # `node`, which is how the short-circuit on `@found` works.
+      def visit(node : Crystal::ASTNode) : Bool
+        return false if @found
+        if @predicate.call(node)
+          @found = true
+          return false
+        end
+        true
+      end
     end
 
     # Sugared variants of `any_descendant?` for the three predicates the
