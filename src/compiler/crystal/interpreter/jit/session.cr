@@ -57,6 +57,7 @@ module Crystal::JIT
     # Built by `ensure_jit_initialized`. Pre-init submissions can't
     # have live instances, so the call-site `try` is the natural no-op.
     @layout_guard : LayoutRefusalGuard? = nil
+    @dispatch_updater : DispatchSlotUpdater? = nil
     # Flipped by `Repl` when the warmup thread finishes touching shared
     # state (`@program.string_pool`, types, defs). `auto_complete`'s
     # method-name lookup walks `@program.types`, so reads must be gated
@@ -409,29 +410,6 @@ module Crystal::JIT
       {node, processor}
     end
 
-    # Repoints `slot_name` at `target_name` with release-ordered store.
-    # Release pairs with `repl_promote_to_dispatch`'s acquire load.
-    private def repoint_slot(slot_name : String, target_name : String) : Nil
-      slot_addr = lljit.lookup(slot_name)
-      target_addr = lljit.lookup(target_name)
-      ::Atomic::Ops.store(slot_addr.as(Pointer(Void*)), target_addr, :release, true)
-    end
-
-    # Repoints `:symbol_table:slot` at the newest versioned table once ORC
-    # materialised it; otherwise first-wins LinkOnceODR masks growth.
-    private def apply_pending_symbol_table_update : Nil
-      update = repl_state.take_symbol_table_update
-      return unless update
-      repoint_slot(*update)
-    end
-
-    # Points each dispatch slot at the new :vN body now that ORC linked it.
-    private def apply_pending_slot_updates : Nil
-      repl_state.drain_slot_updates do |slot_name, body_name|
-        repoint_slot(slot_name, body_name)
-      end
-    end
-
     # Wraps the JIT-emitted `crystal_jit_notify_reaped` fun in a host-side
     # Proc and installs it as the SIGCHLD bridge. No-op under `primitives`
     # prelude (symbol absent).
@@ -581,6 +559,7 @@ module Crystal::JIT
       @dylib = dylib
 
       @layout_guard = LayoutRefusalGuard.new(@program, lljit)
+      @dispatch_updater = DispatchSlotUpdater.new(lljit)
     end
 
     # Pins LLJIT's TargetMachine at `CodeGenOptLevel::None`; hot reload
@@ -686,8 +665,7 @@ module Crystal::JIT
     end
 
     private def apply_post_materialization_fixups : Nil
-      apply_pending_slot_updates
-      apply_pending_symbol_table_update
+      @dispatch_updater.not_nil!.apply_pending(repl_state)
       register_const_globals_as_gc_roots
       install_signal_bridge
     end
