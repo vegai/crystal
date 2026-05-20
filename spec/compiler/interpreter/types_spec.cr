@@ -11,6 +11,10 @@ describe Crystal::Repl::Interpreter do
     it "interprets class for non-union type" do
       context, repl_value = interpret_with_context("1.class")
       type = repl_value.value.as(Crystal::Type)
+      # JIT returns `Int32.metaclass` here (matches compiled Crystal where
+      # `1.class.to_s` prints `Int32`); bytecode returns the instance type
+      # directly. Until the bytecode side is aligned, accept either shape
+      # by normalising to the instance type before the assertion.
       type = type.instance_type if type.metaclass?
       type.should eq(context.program.int32)
     end
