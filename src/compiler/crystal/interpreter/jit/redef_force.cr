@@ -166,7 +166,7 @@ module Crystal::JIT
       # Reopened classes (`class Object; ... end`) carry the real
       # abstract/struct flag on the existing type, not the new AST.
       if program
-        name = cls.name.names.join("::")
+        name = AstHelpers.path_to_string(cls.name)
         existing = program.types[name]?
         if existing.is_a?(ClassType)
           return false if existing.abstract?

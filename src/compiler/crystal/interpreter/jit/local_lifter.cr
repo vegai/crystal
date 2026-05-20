@@ -4,7 +4,7 @@ module Crystal::JIT
   # Names inside nested scopes (Def, Block, ProcLiteral, Macro, FunDef,
   # ClassDef, ModuleDef) are left alone.
   class LocalLifter < Crystal::Transformer
-    PREFIX                 = "@@__repl_"
+    PREFIX                 = Crystal::REPL_LIFTED_PREFIX
     RESERVED_NAME_PREFIXES = {"__repl_", "__temp_"}
 
     @scope_depth : Int32 = 0

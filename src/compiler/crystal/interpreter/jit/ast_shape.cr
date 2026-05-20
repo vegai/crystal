@@ -30,7 +30,7 @@ module Crystal::JIT
         true
       when Crystal::Assign
         target = node.target
-        target.is_a?(Crystal::ClassVar) && target.name.starts_with?("@@__repl_")
+        target.is_a?(Crystal::ClassVar) && target.name.starts_with?(Crystal::REPL_LIFTED_PREFIX)
       else
         false
       end

@@ -49,5 +49,11 @@ module Crystal::JIT
                            args : Array(Crystal::ASTNode) = [] of Crystal::ASTNode) : Crystal::Call
       Crystal::Call.new(obj, method, args).at(loc)
     end
+
+    # `Foo::Bar::Baz` -> `"Foo::Bar::Baz"`. Used to look the type up in
+    # `Program#types` from a parsed `Path`.
+    def path_to_string(path : Crystal::Path) : String
+      path.names.join("::")
+    end
   end
 end

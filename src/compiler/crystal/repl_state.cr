@@ -1,4 +1,10 @@
 module Crystal
+  # Name prefix the JIT REPL's `LocalLifter` stamps onto top-level
+  # locals so they survive between submissions. Codegen recognises it
+  # from `class_var.cr#codegen_repl_class_var_assign`; the lifter (in
+  # `interpreter/jit/local_lifter.cr`) writes it.
+  REPL_LIFTED_PREFIX = "@@__repl_"
+
   # Per-session state for the JIT REPL. AOT codegen leaves it nil.
   class ReplState
     # target_defs / FunDefs / module globals emitted by a prior

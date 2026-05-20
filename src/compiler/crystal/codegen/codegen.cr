@@ -2394,7 +2394,7 @@ module Crystal
     # `store 1` into `@<Type>:instantiated` so `Session` can refuse a
     # layout-changing redef when any instance is live.
     private def mark_repl_instantiated(type : Crystal::Type) : Nil
-      flag_name = repl_instantiated_flag_name(type)
+      flag_name = self.class.repl_instantiated_flag_name(type)
       global = @main_mod.globals[flag_name]? || begin
         g = @main_mod.globals.add(@main_llvm_context.int8, flag_name)
         g.linkage = LLVM::Linkage::LinkOnceODR
@@ -2405,7 +2405,7 @@ module Crystal
       store @main_llvm_context.int8.const_int(1), global
     end
 
-    def repl_instantiated_flag_name(type : Crystal::Type) : String
+    def self.repl_instantiated_flag_name(type : Crystal::Type) : String
       "@\"#{type.llvm_name}:instantiated\""
     end
 

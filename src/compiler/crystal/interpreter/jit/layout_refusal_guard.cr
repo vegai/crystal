@@ -20,7 +20,7 @@ module Crystal::JIT
 
       seen = Set(String).new
       findings.each do |finding|
-        type_name = path_to_string(finding.class_path).presence
+        type_name = AstHelpers.path_to_string(finding.class_path).presence
         next unless type_name
         next if seen.includes?(type_name)
         existing = @program.types[type_name]?
@@ -46,7 +46,7 @@ module Crystal::JIT
     end
 
     private def type_has_live_instance?(type : Crystal::ModuleType, repl_state : Crystal::ReplState) : Bool
-      flag_name = "@\"#{type.llvm_name}:instantiated\""
+      flag_name = Crystal::CodeGenVisitor.repl_instantiated_flag_name(type)
       return false unless repl_state.flag_registered?(flag_name)
       flag_ptr = @lljit.lookup(flag_name)
       return false if flag_ptr.address == 0
@@ -55,7 +55,7 @@ module Crystal::JIT
 
     private def include_module_brings_no_ivars?(path : Crystal::Path?) : Bool
       return false unless path
-      name = path_to_string(path).presence
+      name = AstHelpers.path_to_string(path).presence
       return false unless name
       mod = @program.types[name]?
       return false unless mod.is_a?(Crystal::ModuleType)
@@ -64,15 +64,11 @@ module Crystal::JIT
 
     private def superclass_unchanged?(existing : Crystal::ModuleType, path : Crystal::Path?) : Bool
       return false unless path
-      name = path_to_string(path).presence
+      name = AstHelpers.path_to_string(path).presence
       return false unless name
       ast_super = @program.types[name]?
       return false unless ast_super
       existing.superclass == ast_super
-    end
-
-    private def path_to_string(path : Crystal::Path) : String
-      path.names.join("::")
     end
   end
 end

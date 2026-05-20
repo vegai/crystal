@@ -91,7 +91,7 @@ class Crystal::CodeGenVisitor
   # at read); a reassignment to existing storage emits an unconditional
   # store so the once-gated init doesn't silently no-op the new value.
   def codegen_repl_class_var_assign(target : ClassVar) : Nil
-    is_repl_lifted = target.name.starts_with?("@@__repl_")
+    is_repl_lifted = target.name.starts_with?(Crystal::REPL_LIFTED_PREFIX)
     is_reassign = is_repl_lifted && @program.repl_state?.try &.global_emitted?(class_var_global_name(target.var))
     return if is_repl_lifted && !is_reassign
 
