@@ -292,34 +292,43 @@ module Crystal::JIT
     # Dispatch for the per-submission compile. On the first submission,
     # the warmup may have left a typed prelude AST in the Session; if
     # so, we walk only the input and bundle the two for codegen.
-    # Otherwise we fall back to `bundle_submission`, which walks
-    # `[prelude, input]` together (slower first command but the legacy
-    # path approach B has not yet displaced).
+    # Otherwise we fall back to the first-or-subsequent split: first
+    # walks `[prelude, input]` together (slower but the legacy path
+    # approach B has not yet displaced), subsequent walks just `input`
+    # and passes the cached prelude as `well_known_source`.
     private def compile_input(input : ASTNode) : Session::CompiledWrapper
       if !@session_initialized && (walked = @session.take_walked_prelude)
         @session_initialized = true
         @prelude_semantic_in_progress = true
         return @session.compile_with_walked_prelude(walked, input)
       end
-      node, well_known = bundle_submission(input)
-      @session.compile(node, well_known_source: well_known)
+      if @session_initialized
+        subsequent_submission_compile(input)
+      else
+        first_submission_compile(input)
+      end
     end
 
     private def compile_and_run_input(input : ASTNode) : Value
       @session.invoke(compile_input(input))
     end
 
-    # Returns `(node, well_known_source)` to feed to `Session#compile{,_and_run}`.
-    # On the first submission this bundles `[prelude, input]` and arms
-    # `@prelude_semantic_in_progress` so a failure during the bundled
-    # semantic walk triggers `reset_on_pre_success_error`. Callers clear
-    # the flag with `mark_submission_compiled` after a successful return.
-    private def bundle_submission(input_node : ASTNode) : {ASTNode, ASTNode?}
-      prelude_node = cached_prelude_ast
-      return {input_node, prelude_node} if @session_initialized
+    # First user submission with no warmup-walked prelude: bundle
+    # `[prelude, input]` so they walk together, and arm
+    # `@prelude_semantic_in_progress` so a failure here triggers
+    # `reset_on_pre_success_error`. The flag clears on a successful
+    # `mark_submission_compiled`.
+    private def first_submission_compile(input : ASTNode) : Session::CompiledWrapper
       @session_initialized = true
       @prelude_semantic_in_progress = true
-      {Expressions.new([prelude_node, input_node] of ASTNode), nil}
+      bundle = Expressions.new([cached_prelude_ast, input] of ASTNode)
+      @session.compile(bundle, well_known_source: nil)
+    end
+
+    # Every submission after the first walks just the input and reuses
+    # the cached prelude AST as `well_known_source`.
+    private def subsequent_submission_compile(input : ASTNode) : Session::CompiledWrapper
+      @session.compile(input, well_known_source: cached_prelude_ast)
     end
 
     private def mark_submission_compiled : Nil
