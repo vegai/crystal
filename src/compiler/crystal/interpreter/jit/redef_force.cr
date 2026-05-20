@@ -6,8 +6,13 @@ module Crystal::JIT
   # top-level proc-pointer, instance-method allocate-and-call, and the
   # block-arg variant. Synthetics carry the `(jit-redef-force)` filename
   # so their mangling can't collide with user proc literals.
-  module RedefForce
-    extend self
+  #
+  # One instance per `Session` so the synthetic counter resets when a
+  # `Repl#reset` drops the LLJIT dylib (cross-Session reuse of a synthetic
+  # name would still be fine under LinkOnceODR, but a per-Session counter
+  # makes mangled-name debugging easier and keeps state where it belongs).
+  class RedefForce
+    @counter : Int32 = 0
 
     def inject(node : ASTNode, program : Program? = nil) : ASTNode
       synthetics = collect_synthetics(node, program)
@@ -105,17 +110,8 @@ module Crystal::JIT
       proc_literal
     end
 
-    # Uniqueness is only required *within* a Session (ORC's first-wins
-    # LinkOnceODR pick happens against the dylib of the currently-live
-    # LLJIT; `Repl#reset` disposes the LLJIT, so cross-Session reuse of
-    # the same synthetic name is fine). Kept process-wide because Atomic
-    # is cheap and threading a counter through the module would add a
-    # parameter to every `RedefForce` helper without observable benefit;
-    # an interactive Repl is not going to issue 2^31 submissions.
-    @@counter = Atomic(Int32).new(0)
-
     private def fresh_counter : Int32
-      @@counter.add(1)
+      @counter += 1
     end
 
     private def contains_underscore?(node : ASTNode) : Bool

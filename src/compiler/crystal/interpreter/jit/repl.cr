@@ -144,7 +144,7 @@ module Crystal::JIT
     def run_eval_source(source : String) : Int32
       with_rescue(error_value: 1) do
         input_node = parse_code(source, "(jit-eval)")
-        input_node = RedefForce.inject(input_node, @program)
+        input_node = @session.redef_force.inject(input_node, @program)
         input_node = @session.wrap_in_repl_state(input_node)
         input_node = @session.wrap_runtime_with_rescue(input_node, eval_source_rescue_handler)
         compile_and_run_input(input_node)
@@ -173,7 +173,7 @@ module Crystal::JIT
       # cache so call sites recompile against the new dispatch slot.
       if AstShape.any_defines_value?(input_node)
         @wrapper_cache.clear
-        input_node = RedefForce.inject(input_node, @program)
+        input_node = @session.redef_force.inject(input_node, @program)
       elsif cached = @wrapper_cache.delete(code)
         @wrapper_cache[code] = cached
         return @session.invoke(cached)
@@ -209,7 +209,7 @@ module Crystal::JIT
     # STDOUT.
     def eval_for_spec(line : String) : Value
       input_node = parse_code(line, "(jit-eval)")
-      input_node = RedefForce.inject(input_node, @program)
+      input_node = @session.redef_force.inject(input_node, @program)
       input_node = ResultCapture.wrap_for_value(input_node)
       input_node = @session.wrap_in_repl_state(input_node)
       # `__REPLState` has nil value; tack a top-level getter call so the
@@ -227,7 +227,7 @@ module Crystal::JIT
     private def run_snippet(line : String) : Nil
       with_rescue(error_value: nil) do
         input_node = parse_code(line, "(jit-repl)")
-        input_node = RedefForce.inject(input_node, @program)
+        input_node = @session.redef_force.inject(input_node, @program)
         input_node = ResultCapture.wrap(input_node)
         # JIT-internal rescue keeps the unwind off the host's type_id tables.
         input_node = @session.wrap_in_repl_state(input_node)

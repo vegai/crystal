@@ -39,6 +39,7 @@ module Crystal::JIT
     @repl_locals = Set(String).new
     @submission_counter = 0
     @library_loader : LibraryLoader
+    getter redef_force : RedefForce = RedefForce.new
     # After `ensure_jit_initialized` runs, these are non-nil for the rest
     # of the Session's life. `getter!` lets call sites use `lljit` / `dylib`
     # / `ts_ctx` / `llvm_context` without restating the precondition.
