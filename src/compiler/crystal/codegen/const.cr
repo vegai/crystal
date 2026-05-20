@@ -73,7 +73,7 @@ class Crystal::CodeGenVisitor
         module_local_linkage(global)
       {% end %}
 
-      if rs = @program.repl_state?
+      if rs = @repl_state
         rs.mark_const_global_emitted(global_name)
         if type_may_hold_gc_pointer?(type)
           rs.record_root_global(global_name, @main_llvm_typer.size_of(llvm_typ).to_i32)
@@ -169,7 +169,7 @@ class Crystal::CodeGenVisitor
     global.initializer = @last
     # repl_mode keeps the global writable so a later `CONST = new_value`
     # can rewrite the storage at runtime.
-    global.global_constant = true unless @program.repl_state?
+    global.global_constant = true unless @repl_state
 
     if const_type.is_a?(PrimitiveType) || const_type.is_a?(EnumType)
       const.initializer = @last
@@ -252,7 +252,7 @@ class Crystal::CodeGenVisitor
 
           if @last.constant?
             global.initializer = @last
-            global.global_constant = true unless @program.repl_state?
+            global.global_constant = true unless @repl_state
 
             if const_type.is_a?(PrimitiveType) || const_type.is_a?(EnumType)
               const.initializer = @last
@@ -277,7 +277,7 @@ class Crystal::CodeGenVisitor
     # body compiled against the old value, but prelude consts (`Int32::MAX`,
     # `Float64::INFINITY`, ...) are never redef'd and shouldn't pay a
     # runtime global load on hot paths.
-    if @program.repl_state? && !const.compile_time_value
+    if @repl_state && !const.compile_time_value
       set_current_debug_location node if @debug.line_numbers?
       last = read_const_pointer(const)
       @last = to_lhs last, const.value.type

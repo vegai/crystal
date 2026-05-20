@@ -69,7 +69,7 @@ class Crystal::CodeGenVisitor
 
   private def compute_redef_plan(mangled_name : String, target_def, is_exported_fun : Bool,
                                  is_fun_literal : Bool, is_closure : Bool) : RedefPlan
-    rs = @program.repl_state?
+    rs = @repl_state
     emit_body = (!target_def.is_a?(External) || is_exported_fun) &&
                 !rs.try &.target_def_emitted?(target_def.object_id)
 
@@ -238,7 +238,7 @@ class Crystal::CodeGenVisitor
 
         br_from_alloca_to_entry
 
-        if rs = @program.repl_state?
+        if rs = @repl_state
           # Definition is now in this submission's module. Mark visible to
           # later submissions, and promote to a cross-module linkage so ORC
           # can resolve declarations from those later submissions.
@@ -449,7 +449,7 @@ class Crystal::CodeGenVisitor
       end
     end
 
-    if @single_module && !target_def.is_a?(External) && !@program.repl_state?
+    if @single_module && !target_def.is_a?(External) && !@repl_state
       context.fun.linkage = LLVM::Linkage::Internal
     end
 
@@ -507,7 +507,7 @@ class Crystal::CodeGenVisitor
       context.fun.call_convention = call_convention
     end
 
-    if @single_module && !@program.repl_state? && mangled_name.starts_with?("__crystal_")
+    if @single_module && !@repl_state && mangled_name.starts_with?("__crystal_")
       # FIXME: macos ld fails to link when the personality fun is internal; it
       # might work with lld so we might want to check the linker?
       unless @program.has_flag?("darwin") && mangled_name.starts_with?("__crystal_personality")
