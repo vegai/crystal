@@ -61,19 +61,15 @@ class Crystal::CodeGenVisitor
     typed_fun
   end
 
-  # Up-front decision record for `codegen_fun` repl-mode redef versioning.
-  private record RedefPlan,
-    emit_body : Bool,
-    install_stub_first_time : Bool,
-    body_name : String
-
+  # Returns `{emit_body, install_stub_first_time, body_name}` for
+  # `codegen_fun`'s repl-mode redef versioning.
   private def compute_redef_plan(mangled_name : String, target_def, is_exported_fun : Bool,
-                                 is_fun_literal : Bool, is_closure : Bool) : RedefPlan
+                                 is_fun_literal : Bool, is_closure : Bool) : {Bool, Bool, String}
     rs = @repl_state
     emit_body = (!target_def.is_a?(External) || is_exported_fun) &&
                 !rs.try &.target_def_emitted?(target_def.object_id)
 
-    no_dispatch = RedefPlan.new(emit_body, false, mangled_name)
+    no_dispatch = {emit_body, false, mangled_name}
     return no_dispatch unless emit_body
     return no_dispatch unless rs
     return no_dispatch unless @single_module
@@ -86,10 +82,10 @@ class Crystal::CodeGenVisitor
       rs.set_emitted_stub_version(mangled_name, new_version)
       body_versioned_name = "#{mangled_name}:v#{new_version}"
       rs.queue_slot_update("#{mangled_name}:slot", body_versioned_name)
-      RedefPlan.new(emit_body, false, body_versioned_name)
+      {emit_body, false, body_versioned_name}
     else
       rs.set_emitted_stub_version(mangled_name, 1)
-      RedefPlan.new(emit_body, true, "#{mangled_name}:v1")
+      {emit_body, true, "#{mangled_name}:v1"}
     end
   end
 
@@ -112,10 +108,8 @@ class Crystal::CodeGenVisitor
     # repl_mode emits target_def bodies at `:vN` and installs a
     # LinkOnceODR stub at the canonical name that dispatches through
     # an updatable slot. Externals/fun literals/closures stay direct.
-    plan = compute_redef_plan(mangled_name, target_def, is_exported_fun, is_fun_literal, is_closure)
-    will_emit_body = plan.emit_body
-    install_stub_first_time = plan.install_stub_first_time
-    body_versioned_name = plan.body_name
+    will_emit_body, install_stub_first_time, body_versioned_name =
+      compute_redef_plan(mangled_name, target_def, is_exported_fun, is_fun_literal, is_closure)
 
     with_cloned_context do |old_context|
       context.type = self_type
