@@ -17,10 +17,5 @@ module Crystal::JIT
     def type_from_id(id : Int32) : Crystal::Type?
       @program.llvm_id.type_from_id(id)
     end
-
-    # JIT has no shared loader; `Session` owns its own.
-    def loader? : Crystal::Loader?
-      nil
-    end
   end
 end

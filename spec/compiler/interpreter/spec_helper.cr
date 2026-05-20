@@ -47,7 +47,10 @@ end
 def interpret(code, *, prelude = "primitives", file = __FILE__, line = __LINE__)
   if prelude == "primitives"
     context, value = interpret_with_context(code)
-    context.loader?.try &.close_all
+    # Bytecode loader owns dlopened libraries directly; close them between
+    # examples. The JIT backend keeps the loader on `Session`, which the
+    # `before_each` `dispose_all_sessions` hook tears down.
+    context.loader?.try &.close_all if context.is_a?(Crystal::Repl::Context)
     value.value
   else
     interpret_in_separate_process(code, prelude, file: file, line: line)
