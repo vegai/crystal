@@ -72,7 +72,10 @@ private def crystal_jit_traverse_eh_table(leb, start, ip, actions, &)
   throw_offset = (ip &- 1_u64) &- start
 
   lp_start_encoding = leb.read_uint8
-  LibC.exit(1_i32) if lp_start_encoding.to_i32 != 0xff_i32
+  # Distinct exit codes so an `exit N` from this runtime is greppable
+  # without parsing stderr (primitives prelude has no String#to_unsafe
+  # to write a textual marker through LibC.write).
+  LibC.exit(111_i32) if lp_start_encoding.to_i32 != 0xff_i32
 
   tt_encoding = leb.read_uint8
   if tt_encoding.to_i32 != 0xff_i32
@@ -81,7 +84,7 @@ private def crystal_jit_traverse_eh_table(leb, start, ip, actions, &)
 
   cs_encoding = leb.read_uint8
   cs_enc = cs_encoding.to_i32
-  LibC.exit(1_i32) if cs_enc != 1_i32 && cs_enc != 3_i32
+  LibC.exit(112_i32) if cs_enc != 1_i32 && cs_enc != 3_i32
 
   cs_table_length = leb.read_uleb128
   cs_table_end_addr = leb.data.address &+ cs_table_length

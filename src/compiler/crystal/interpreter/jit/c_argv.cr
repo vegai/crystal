@@ -1,8 +1,9 @@
 module Crystal::JIT
   # Persistent C-style argv block that the JIT wrapper hands to
-  # `__crystal_main`. Storage is `malloc_atomic` so Boehm does not chase
-  # stray bit-patterns as Crystal heap pointers; `storage` is the
-  # Boehm-traced root keeping the malloc alive while the session uses it.
+  # `__crystal_main`. Storage is `malloc_atomic` so Boehm doesn't chase
+  # stray bit-patterns as Crystal heap pointers. The struct holds onto
+  # `storage`, which pins the malloc alive for the session's lifetime;
+  # Boehm does not scan the malloc itself (atomic blocks are skipped).
   struct CArgv
     getter argv : Pointer(Pointer(UInt8))
     getter argc : Int32

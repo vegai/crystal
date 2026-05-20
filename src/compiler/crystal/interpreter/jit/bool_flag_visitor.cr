@@ -8,6 +8,8 @@ module Crystal::JIT
     def initialize(@predicate : Crystal::ASTNode -> Bool)
     end
 
+    # Returning false from the `Visitor` contract skips children of
+    # `node`, which is how the short-circuit on `@found` works.
     def visit(node : Crystal::ASTNode) : Bool
       return false if @found
       if @predicate.call(node)

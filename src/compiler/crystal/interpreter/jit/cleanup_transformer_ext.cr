@@ -6,27 +6,18 @@ require "../../semantic/cleanup_transformer"
 
 module Crystal
   class CleanupTransformer
-    # Drops the per-instance `@transformed` set so that bodies a prior
-    # cleanup invocation already walked are re-walked. The JIT REPL
-    # uses this when a type-graph-changing submission may have grown
-    # virtual-call target_defs that the prior walk's parent typed_defs
-    # still reach through Calls whose `target_defs` arrays now include
-    # newly instantiated, un-transformed entries. Idempotent on bodies
-    # whose `ExpandableNode`s were already replaced.
+    # Forces a JIT submission's cleanup walk to re-visit bodies a prior
+    # submission already transformed; new virtual-call instantiations
+    # may have appended un-transformed target_defs to those bodies.
     def reset_transformed_for_dirty_submission : Nil
       @transformed = Set(Def).new.compare_by_identity
     end
 
-    # Scans every `def_instance` in the type graph and transforms any
-    # body whose AST still carries an `ExpandableNode` that has not
-    # been replaced with its `.expanded` form. Used by the JIT REPL
-    # after a dirty submission: `on_new_subclass` recalculation can
-    # instantiate typed_defs deep inside cached parent bodies that
-    # the AST-driven cleanup walk no longer reaches, so the post-walk
-    # codegen would BUG on the unreplaced `MacroExpression`s.
-    # Independent invocation; resets `@transformed` so each body's
-    # transform is idempotent and stops only at the `@transformed`
-    # cycle detection.
+    # Catches `ExpandableNode`s the AST-driven cleanup walk no longer
+    # reaches after a JIT dirty submission. `on_new_subclass`
+    # recalculation can instantiate typed_defs inside cached parent
+    # bodies that the walk skips, leaving unreplaced `MacroExpression`s
+    # that codegen would BUG on.
     def sweep_typed_def_bodies(types : Iterator(Type) | Enumerable(Type)) : Nil
       @transformed = Set(Def).new.compare_by_identity
       visited = Set(Type).new.compare_by_identity

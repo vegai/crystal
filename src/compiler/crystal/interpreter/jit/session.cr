@@ -97,14 +97,11 @@ module Crystal::JIT
       @program.repl_state? || raise "BUG: Session lost its program-level repl_state"
     end
 
-    # Allocates a persistent C-style `argv` the JIT wrapper hands to
-    # `__crystal_main`.
     def install_program_args(args : Array(String)) : Nil
       @argv = CArgv.build(args)
     end
 
-    # Drops Boehm root ranges added by `register_const_globals_as_gc_roots`
-    # so they vacate slots in the `MAX_ROOT_SETS`-bounded table. Idempotent.
+    # Frees slots in the `MAX_ROOT_SETS`-bounded GC table. Idempotent.
     def unregister_gc_roots : Nil
       return if @registered_root_ranges.empty?
       @registered_root_ranges.each do |low, high|
@@ -114,18 +111,15 @@ module Crystal::JIT
       @registered_root_globals.clear
     end
 
-    # Clears the host's `SignalChildHandler.external_reaper` if we installed
-    # it, so a successor Session can install its own.
     def uninstall_signal_bridge : Nil
       return unless @signal_bridge_installed
       Crystal::System::SignalChildHandler.external_reaper = nil
       @signal_bridge_installed = false
     end
 
-    # Releases JIT-mapped pages and drops the `@@alive` pin. Idempotent.
-    # User-context only (not a finalizer): the bridge proc and Boehm root
-    # ranges both capture pointers into JIT memory and must be torn down
-    # before the LLJIT unmaps it.
+    # User-context only: the bridge proc and Boehm root ranges capture
+    # pointers into JIT memory and must be torn down before LLJIT
+    # unmaps it (a finalizer thread can't safely do this).
     def dispose : Nil
       return if @disposed
       @disposed = true
@@ -139,11 +133,9 @@ module Crystal::JIT
       @@alive.delete(self)
     end
 
-    # Rewrites top-level local assigns/refs in `node` to class variables on
-    # a synthetic `__REPLState` module so values persist across submissions,
-    # then wraps the body in `module __REPLState ... end`. `require`s hoist
-    # out as siblings of the wrapper. Compose with `wrap_runtime_with_rescue`
-    # when the submission's runtime statements need a JIT-internal rescue.
+    # Lifts top-level locals to class vars on `__REPLState` so they
+    # persist across submissions, then wraps the body in `module
+    # __REPLState`. `require`s hoist out as siblings of the wrapper.
     def wrap_in_repl_state(node : ASTNode) : ASTNode
       inner = node.transform(LocalLifter.new(@repl_locals))
 
@@ -158,9 +150,8 @@ module Crystal::JIT
       end
     end
 
-    # Groups consecutive runtime statements in the `__REPLState` module body
-    # of an already-`wrap_in_repl_state`'d node through `handler` (typically
-    # an `ExceptionHandler` builder). Declarations stay at body level.
+    # Wraps consecutive runtime statements in the `__REPLState` body
+    # with `handler`, leaving declarations at body level.
     def wrap_runtime_with_rescue(node : ASTNode, handler : ASTNode -> ASTNode) : ASTNode
       rewrite_repl_state_body(node) do |body|
         RuntimeRescueGrouper.group(body, handler)
