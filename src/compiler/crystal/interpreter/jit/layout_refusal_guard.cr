@@ -28,13 +28,11 @@ module Crystal::JIT
         next unless type_has_live_instance?(existing, repl_state)
 
         # `include` with no ivars and a restated superclass do not change layout.
-        if finding.is_a?(LayoutChangeDetector::IncludeFinding) &&
-           include_module_brings_no_ivars?(finding.include_path)
-          next
-        end
-        if finding.is_a?(LayoutChangeDetector::SuperclassDeclarationFinding) &&
-           superclass_unchanged?(existing, finding.superclass_path)
-          next
+        case finding.kind
+        when .include?
+          next if include_module_brings_no_ivars?(finding.related_path)
+        when .superclass?
+          next if superclass_unchanged?(existing, finding.related_path)
         end
 
         seen << type_name

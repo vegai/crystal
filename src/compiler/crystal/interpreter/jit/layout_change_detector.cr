@@ -3,7 +3,7 @@ module Crystal::JIT
   # class's instance-var layout: declaring or assigning instance vars
   # inside a `class Foo ... end` body, switching the superclass when
   # `Foo` already exists, or `include`-ing a module that may bring its
-  # own ivars. Each finding pairs a class path with a `Reason` so
+  # own ivars. Each finding pairs a class path with a `Kind` so
   # `Session#compile` can format the right error and `Repl#reset` hint
   # if the class is already instantiated.
   #
@@ -15,53 +15,29 @@ module Crystal::JIT
   module LayoutChangeDetector
     extend self
 
-    abstract struct Finding
-      getter class_path : Crystal::Path
-      getter location : Crystal::Location?
-
-      def initialize(@class_path : Crystal::Path, @location : Crystal::Location?)
-      end
-
-      abstract def reason_text : String
+    enum Kind
+      IvarDecl
+      IvarAssign
+      Superclass
+      Include
     end
 
-    struct IvarDeclFinding < Finding
+    # `related_path` carries the AST `Path` for `Superclass` (the new
+    # superclass) and `Include` (the included module). `Session` resolves
+    # it against `Program#types` to filter out no-op shapes (restated
+    # superclass, mixin module with no ivars). Ivar findings leave it nil.
+    record Finding,
+      kind : Kind,
+      class_path : Crystal::Path,
+      location : Crystal::Location?,
+      related_path : Crystal::Path? = nil do
       def reason_text : String
-        "declares a new instance variable"
-      end
-    end
-
-    struct IvarAssignFinding < Finding
-      def reason_text : String
-        "assigns a new instance variable"
-      end
-    end
-
-    # `superclass_path` carries the AST `Path` so Session can resolve it and
-    # skip the refusal when it matches the existing superclass. Non-Path
-    # superclasses (e.g. `Bar(Int32)`) pass nil and the refusal stays.
-    struct SuperclassDeclarationFinding < Finding
-      getter superclass_path : Crystal::Path?
-
-      def initialize(@class_path : Crystal::Path, @location : Crystal::Location?, @superclass_path : Crystal::Path?)
-      end
-
-      def reason_text : String
-        "changes the superclass"
-      end
-    end
-
-    # The `include` path lets `Session` resolve the included module and
-    # skip the refusal when the module brings no instance vars
-    # (`include Comparable(self)`, mixin modules that only add methods).
-    struct IncludeFinding < Finding
-      getter include_path : Crystal::Path?
-
-      def initialize(@class_path : Crystal::Path, @location : Crystal::Location?, @include_path : Crystal::Path?)
-      end
-
-      def reason_text : String
-        "includes a module that brings instance variables"
+        case kind
+        in .ivar_decl?   then "declares a new instance variable"
+        in .ivar_assign? then "assigns a new instance variable"
+        in .superclass?  then "changes the superclass"
+        in .include?     then "includes a module that brings instance variables"
+        end
       end
     end
 
@@ -77,7 +53,7 @@ module Crystal::JIT
       def visit(node : Crystal::ClassDef) : Bool
         cls_path = node.name
         if super_node = node.superclass
-          @findings << SuperclassDeclarationFinding.new(cls_path, node.location, super_node.as?(Crystal::Path))
+          @findings << Finding.new(Kind::Superclass, cls_path, node.location, super_node.as?(Crystal::Path))
         end
 
         scan_body(cls_path, node.body)
@@ -111,16 +87,16 @@ module Crystal::JIT
         when Crystal::TypeDeclaration
           var = e.var
           if var.is_a?(Crystal::InstanceVar)
-            @findings << IvarDeclFinding.new(cls_path, e.location)
+            @findings << Finding.new(Kind::IvarDecl, cls_path, e.location)
           end
         when Crystal::Assign
           target = e.target
           if target.is_a?(Crystal::InstanceVar)
-            @findings << IvarAssignFinding.new(cls_path, e.location)
+            @findings << Finding.new(Kind::IvarAssign, cls_path, e.location)
           end
         when Crystal::Include
           inc_path = e.name.as?(Crystal::Path)
-          @findings << IncludeFinding.new(cls_path, e.location, inc_path)
+          @findings << Finding.new(Kind::Include, cls_path, e.location, inc_path)
         end
       end
     end
