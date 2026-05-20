@@ -95,8 +95,10 @@ class Crystal::CodeGenVisitor
     is_reassign = is_repl_lifted && @program.repl_state?.try &.global_emitted?(class_var_global_name(target.var))
     return if is_repl_lifted && !is_reassign
 
-    initialize_class_var(target)
-    return unless is_reassign
+    unless is_reassign
+      initialize_class_var(target)
+      return
+    end
 
     class_var_meta : MetaTypeVar = target.var
     cv_initializer = class_var_meta.initializer
