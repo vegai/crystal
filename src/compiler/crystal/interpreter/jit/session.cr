@@ -1,3 +1,5 @@
+{% skip_file if LibLLVM::IS_LT_110 %}
+
 module Crystal::JIT
   class Session
     # Convenience forwarder so callers (specs, host `at_exit` hooks)
@@ -382,27 +384,23 @@ module Crystal::JIT
     end
 
     private def run_jit(node : ASTNode, well_known_source : ASTNode?) : CompiledWrapper
-      {% if LibLLVM::IS_LT_110 %}
-        raise "JIT backend requires LLVM 11 or newer"
-      {% else %}
-        ensure_jit_initialized
-        @submission_counter += 1
-        repl_state.submission_id = @submission_counter
+      ensure_jit_initialized
+      @submission_counter += 1
+      repl_state.submission_id = @submission_counter
 
-        result_type = node.type? || @program.nil_type
-        wants_value = !result_type.nil_type? && !result_type.void?
+      result_type = node.type? || @program.nil_type
+      wants_value = !result_type.nil_type? && !result_type.void?
 
-        visitor, llvm_mod = codegen_submission(node, well_known_source)
-        wrapper_name = emit_wrapper_function(visitor, llvm_mod, result_type, wants_value)
-        llvm_mod.verify
-        dump_ir_if_requested(llvm_mod)
+      visitor, llvm_mod = codegen_submission(node, well_known_source)
+      wrapper_name = emit_wrapper_function(visitor, llvm_mod, result_type, wants_value)
+      llvm_mod.verify
+      dump_ir_if_requested(llvm_mod)
 
-        func_ptr = materialize_wrapper(llvm_mod, wrapper_name)
-        apply_post_materialization_fixups
+      func_ptr = materialize_wrapper(llvm_mod, wrapper_name)
+      apply_post_materialization_fixups
 
-        buffer_size = wants_value ? @program.size_of(result_type).to_u32 : nil
-        CompiledWrapper.new(func_ptr, result_type, buffer_size)
-      {% end %}
+      buffer_size = wants_value ? @program.size_of(result_type).to_u32 : nil
+      CompiledWrapper.new(func_ptr, result_type, buffer_size)
     end
 
     private def codegen_submission(node : ASTNode, well_known_source : ASTNode?) : {CodeGenVisitor, LLVM::Module}
