@@ -3,7 +3,7 @@ require "../syntax/parser"
 require "../syntax/visitor"
 require "../semantic"
 require "../program"
-require "../repl_codegen_hooks"
+require "../repl_state"
 require "./llvm_builder_helper"
 require "./abi/*"
 
@@ -284,9 +284,8 @@ module Crystal
                    @debug = Debug::Default,
                    @frame_pointers : FramePointers = :auto,
                    @llvm_context : LLVM::Context = LLVM::Context.new,
-                   hooks : ReplCodegenHooks = ReplCodegenHooks::Noop.new)
-      @repl_hooks = hooks
-      @well_known_source = hooks.well_known_source?
+                   well_known_source : ASTNode? = nil)
+      @well_known_source = well_known_source
       @abi = ABI.from(@program.target_machine)
       # LLVM::Context.register(@llvm_context, "main")
       @llvm_mod = configure_module(@llvm_context.new_module("main_module"))
@@ -342,9 +341,9 @@ module Crystal
       unless program.symbols.empty?
         symbol_table = define_symbol_table @llvm_mod, @llvm_typer
         symbol_table.initializer = llvm_type(@program.string).const_array(@symbol_table_values)
-        if @repl_hooks.repl_mode?
+        if rs = @program.repl_state?
           ensure_repl_symbol_table_slot
-          @repl_hooks.queue_symbol_table_update(SYMBOL_TABLE_SLOT_NAME, symbol_table.name)
+          rs.queue_symbol_table_update(SYMBOL_TABLE_SLOT_NAME, symbol_table.name)
         end
       end
 
@@ -422,7 +421,7 @@ module Crystal
         next unless initializer.simple?
 
         # Redef stores happen in `codegen_assign(Path)`; skip simple-init pass.
-        next if @repl_hooks.const_reinit_pending?(initializer)
+        next if @program.repl_state?.try &.const_reinit_pending?(initializer)
 
         initialize_simple_const(initializer)
       end
@@ -437,7 +436,7 @@ module Crystal
     # the symbol against an earlier module's storage.
     private def module_local_linkage(value : LLVM::ValueMethods) : Nil
       return unless @single_module
-      value.linkage = @repl_hooks.repl_mode? ? LLVM::Linkage::LinkOnceODR : LLVM::Linkage::Internal
+      value.linkage = @program.repl_state? ? LLVM::Linkage::LinkOnceODR : LLVM::Linkage::Internal
     end
 
     def define_symbol_table(llvm_mod, llvm_typer)
@@ -465,9 +464,8 @@ module Crystal
     # counter on first read so each submission's table gets a unique
     # `:vN` suffix.
     private def symbol_table_name : String
-      return SYMBOL_TABLE_NAME unless @repl_hooks.repl_mode?
-      active_hooks = @repl_hooks.as(ReplCodegenHooks::Active)
-      @repl_symbol_table_name ||= "#{SYMBOL_TABLE_NAME}:v#{active_hooks.bump_symbol_table_version}"
+      return SYMBOL_TABLE_NAME unless rs = @program.repl_state?
+      @repl_symbol_table_name ||= "#{SYMBOL_TABLE_NAME}:v#{rs.bump_symbol_table_version}"
     end
 
     # Callers must have checked `@program.symbols` is non-empty (either
@@ -642,7 +640,7 @@ module Crystal
         return false
       end
 
-      if @repl_hooks.external_emitted?(node.external.object_id)
+      if @program.repl_state?.try &.external_emitted?(node.external.object_id)
         # Already emitted in a prior submission. Emit a signature-only
         # declaration so calls in this submission can be linked by ORC.
         codegen_fun node.real_name, node.external, @program, is_exported_fun: false
@@ -849,7 +847,7 @@ module Crystal
 
       # repl_mode: bypass codegen_fun when a prior multidispatch visit
       # in this submission already emitted the body.
-      if @repl_hooks.repl_mode? && (existing = typed_fun?(@main_module_info.mod, fun_literal_name))
+      if @program.repl_state? && (existing = typed_fun?(@main_module_info.mod, fun_literal_name))
         the_fun = check_main_fun fun_literal_name, existing
       else
         the_fun = codegen_fun fun_literal_name, node.def, context.type, fun_module_info: @main_module_info, is_fun_literal: true, is_closure: is_closure
@@ -872,7 +870,7 @@ module Crystal
       # Cache per-`def.object_id` so multidispatch re-visits of one
       # proc literal resolve to the same emitted body.
       def_id = node.def.object_id
-      if cached = @repl_hooks.proc_literal_name?(def_id)
+      if cached = @program.repl_state?.try &.proc_literal_name?(def_id)
         return cached
       end
 
@@ -897,7 +895,7 @@ module Crystal
         end
       end
 
-      @repl_hooks.record_proc_literal_name(def_id, fun_literal_name)
+      @program.repl_state?.try &.record_proc_literal_name(def_id, fun_literal_name)
 
       fun_literal_name
     end
@@ -1277,7 +1275,7 @@ module Crystal
     def codegen_assign(target : Path, value, node)
       const = target.target_const.not_nil!
       # Redef Assign reaches here as a re-entered Path; store directly.
-      if @repl_hooks.const_reinit_pending?(const)
+      if @program.repl_state?.try &.const_reinit_pending?(const)
         codegen_const_reinit(const, value)
         return false
       end
@@ -1310,7 +1308,7 @@ module Crystal
       # or a class variable initializer
       unless target_type
         if target.is_a?(ClassVar)
-          if @repl_hooks.repl_mode?
+          if @program.repl_state?
             codegen_repl_class_var_assign(target)
           else
             initialize_class_var(target)
@@ -1399,12 +1397,12 @@ module Crystal
         ptr.thread_local = true if thread_local
 
         if @llvm_mod == @main_mod
-          if @repl_hooks.global_emitted?(name)
+          if @program.repl_state?.try &.global_emitted?(name)
             # Already defined in an earlier submission's module. Leave as
             # an extern declaration so ORC resolves the access cross-module.
           else
             ptr.initializer = initial_value || llvm_type.null
-            @repl_hooks.mark_global_emitted(name)
+            @program.repl_state?.try &.mark_global_emitted(name)
           end
         else
           ptr.linkage = LLVM::Linkage::External
@@ -2385,12 +2383,12 @@ module Crystal
       end
 
       pre_initialize_aggregate(type, struct_type, type_ptr)
-      mark_repl_instantiated(type) if @repl_hooks.repl_mode? && !type.passed_by_value?
+      mark_repl_instantiated(type) if @program.repl_state? && !type.passed_by_value?
       @last
     end
 
     private def mark_repl_external_emitted(external : External) : Nil
-      @repl_hooks.mark_external_emitted(external.object_id)
+      @program.repl_state?.try &.mark_external_emitted(external.object_id)
     end
 
     # `store 1` into `@<Type>:instantiated` so `Session` can refuse a
@@ -2401,7 +2399,7 @@ module Crystal
         g = @main_mod.globals.add(@main_llvm_context.int8, flag_name)
         g.linkage = LLVM::Linkage::LinkOnceODR
         g.initializer = @main_llvm_context.int8.const_int(0)
-        @repl_hooks.register_instantiated_flag(flag_name)
+        @program.repl_state?.try &.register_instantiated_flag(flag_name)
         g
       end
       store @main_llvm_context.int8.const_int(1), global

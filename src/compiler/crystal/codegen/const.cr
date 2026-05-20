@@ -73,10 +73,10 @@ class Crystal::CodeGenVisitor
         module_local_linkage(global)
       {% end %}
 
-      if @repl_hooks.repl_mode?
-        @repl_hooks.mark_const_global_emitted(global_name)
+      if rs = @program.repl_state?
+        rs.mark_const_global_emitted(global_name)
         if type_may_hold_gc_pointer?(type)
-          @repl_hooks.record_root_global(global_name, @main_llvm_typer.size_of(llvm_typ).to_i32)
+          rs.record_root_global(global_name, @main_llvm_typer.size_of(llvm_typ).to_i32)
         end
 
         # LinkOnceODR needs an initializer; seed with the literal value
@@ -169,7 +169,7 @@ class Crystal::CodeGenVisitor
     global.initializer = @last
     # repl_mode keeps the global writable so a later `CONST = new_value`
     # can rewrite the storage at runtime.
-    global.global_constant = true unless @repl_hooks.repl_mode?
+    global.global_constant = true unless @program.repl_state?
 
     if const_type.is_a?(PrimitiveType) || const_type.is_a?(EnumType)
       const.initializer = @last
@@ -252,7 +252,7 @@ class Crystal::CodeGenVisitor
 
           if @last.constant?
             global.initializer = @last
-            global.global_constant = true unless @repl_hooks.repl_mode?
+            global.global_constant = true unless @program.repl_state?
 
             if const_type.is_a?(PrimitiveType) || const_type.is_a?(EnumType)
               const.initializer = @last
@@ -273,7 +273,7 @@ class Crystal::CodeGenVisitor
   def read_const(const, node)
     # repl_mode reads through the global so a later const redef
     # reaches callers compiled before the redef.
-    if @repl_hooks.repl_mode?
+    if @program.repl_state?
       set_current_debug_location node if @debug.line_numbers?
       last = read_const_pointer(const)
       @last = to_lhs last, const.value.type

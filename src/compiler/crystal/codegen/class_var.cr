@@ -15,19 +15,19 @@ class Crystal::CodeGenVisitor
       global.thread_local = true if class_var.thread_local?
       # If a prior submission already emitted the global, leave this as
       # an extern declaration; ORC resolves to the prior LinkOnceODR.
-      unless @repl_hooks.global_emitted?(global_name)
+      unless @program.repl_state?.try &.global_emitted?(global_name)
         module_local_linkage(global)
         if !global.initializer && type.includes_type?(@program.nil_type)
           global.initializer = main_llvm_type.null
         end
-        @repl_hooks.mark_global_emitted(global_name)
+        @program.repl_state?.try &.mark_global_emitted(global_name)
       end
       # Register as a GC root in REPL mode so Boehm traces any heap
       # pointer the class var holds; JIT-mapped pages aren't scanned by
       # default and a stored Mutex / Channel / Proc would otherwise be
       # GC'd while still pointed at from the global.
-      if @repl_hooks.repl_mode? && type_may_hold_gc_pointer?(class_var.type)
-        @repl_hooks.record_root_global(global_name, @main_llvm_typer.size_of(main_llvm_type).to_i32)
+      if (rs = @program.repl_state?) && type_may_hold_gc_pointer?(class_var.type)
+        rs.record_root_global(global_name, @main_llvm_typer.size_of(main_llvm_type).to_i32)
       end
       declare_class_var_debug_info(global, class_var) if @debug.variables?
     end
@@ -42,7 +42,7 @@ class Crystal::CodeGenVisitor
       initialized_flag.initializer = @main_llvm_context.int1.const_int(0)
       module_local_linkage(initialized_flag)
       initialized_flag.thread_local = true if class_var.thread_local?
-      @repl_hooks.mark_global_emitted(initialized_flag_name)
+      @program.repl_state?.try &.mark_global_emitted(initialized_flag_name)
     end
     initialized_flag
   end
@@ -92,7 +92,7 @@ class Crystal::CodeGenVisitor
   # store so the once-gated init doesn't silently no-op the new value.
   def codegen_repl_class_var_assign(target : ClassVar) : Nil
     is_repl_lifted = target.name.starts_with?("@@__repl_")
-    is_reassign = is_repl_lifted && @repl_hooks.global_emitted?(class_var_global_name(target.var))
+    is_reassign = is_repl_lifted && @program.repl_state?.try &.global_emitted?(class_var_global_name(target.var))
     return if is_repl_lifted && !is_reassign
 
     initialize_class_var(target)
@@ -161,7 +161,7 @@ class Crystal::CodeGenVisitor
 
     typed_fun?(@main_mod, init_function_name) || begin
       # Must snapshot before `declare_class_var` adds the name to the set.
-      already_emitted_global = @repl_hooks.global_emitted?(class_var_global_name(class_var))
+      already_emitted_global = @program.repl_state?.try &.global_emitted?(class_var_global_name(class_var))
       global = declare_class_var(class_var)
 
       discard = false
@@ -190,7 +190,7 @@ class Crystal::CodeGenVisitor
               discard = true
             elsif @last.constant? && (type.is_a?(PrimitiveType) || type.is_a?(EnumType))
               global.initializer = @last unless already_emitted_global
-              if @repl_hooks.repl_mode? && class_var.thread_local?
+              if @program.repl_state? && class_var.thread_local?
                 # ORC LLJIT skips the TLS static-init template, so storage
                 # stays zeroed; emit an explicit runtime store gated by
                 # `__crystal_once` instead.

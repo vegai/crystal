@@ -69,25 +69,26 @@ class Crystal::CodeGenVisitor
 
   private def compute_redef_plan(mangled_name : String, target_def, is_exported_fun : Bool,
                                  is_fun_literal : Bool, is_closure : Bool) : RedefPlan
+    rs = @program.repl_state?
     emit_body = (!target_def.is_a?(External) || is_exported_fun) &&
-                !@repl_hooks.target_def_emitted?(target_def.object_id)
+                !rs.try &.target_def_emitted?(target_def.object_id)
 
     no_dispatch = RedefPlan.new(emit_body, false, mangled_name)
     return no_dispatch unless emit_body
-    return no_dispatch unless @repl_hooks.repl_mode?
+    return no_dispatch unless rs
     return no_dispatch unless @single_module
     return no_dispatch if target_def.is_a?(External)
     return no_dispatch if is_fun_literal
     return no_dispatch if is_closure
 
-    if existing_version = @repl_hooks.emitted_stub_version?(mangled_name)
+    if existing_version = rs.emitted_stub_version?(mangled_name)
       new_version = existing_version + 1
-      @repl_hooks.set_emitted_stub_version(mangled_name, new_version)
+      rs.set_emitted_stub_version(mangled_name, new_version)
       body_versioned_name = "#{mangled_name}:v#{new_version}"
-      @repl_hooks.queue_slot_update("#{mangled_name}:slot", body_versioned_name)
+      rs.queue_slot_update("#{mangled_name}:slot", body_versioned_name)
       RedefPlan.new(emit_body, false, body_versioned_name)
     else
-      @repl_hooks.set_emitted_stub_version(mangled_name, 1)
+      rs.set_emitted_stub_version(mangled_name, 1)
       RedefPlan.new(emit_body, true, "#{mangled_name}:v1")
     end
   end
@@ -237,14 +238,14 @@ class Crystal::CodeGenVisitor
 
         br_from_alloca_to_entry
 
-        if @repl_hooks.repl_mode?
+        if rs = @program.repl_state?
           # Definition is now in this submission's module. Mark visible to
           # later submissions, and promote to a cross-module linkage so ORC
           # can resolve declarations from those later submissions.
           if @single_module && !target_def.is_a?(External)
             body_fn.linkage = LLVM::Linkage::LinkOnceODR
           end
-          @repl_hooks.mark_target_def_emitted(target_def.object_id)
+          rs.mark_target_def_emitted(target_def.object_id)
         end
       end
 
@@ -448,7 +449,7 @@ class Crystal::CodeGenVisitor
       end
     end
 
-    if @single_module && !target_def.is_a?(External) && !@repl_hooks.repl_mode?
+    if @single_module && !target_def.is_a?(External) && !@program.repl_state?
       context.fun.linkage = LLVM::Linkage::Internal
     end
 
@@ -506,7 +507,7 @@ class Crystal::CodeGenVisitor
       context.fun.call_convention = call_convention
     end
 
-    if @single_module && !@repl_hooks.repl_mode? && mangled_name.starts_with?("__crystal_")
+    if @single_module && !@program.repl_state? && mangled_name.starts_with?("__crystal_")
       # FIXME: macos ld fails to link when the personality fun is internal; it
       # might work with lld so we might want to check the linker?
       unless @program.has_flag?("darwin") && mangled_name.starts_with?("__crystal_personality")

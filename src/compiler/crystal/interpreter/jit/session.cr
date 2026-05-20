@@ -533,11 +533,10 @@ module Crystal::JIT
 
     private def codegen_submission(node : ASTNode, well_known_source : ASTNode?) : {CodeGenVisitor, LLVM::Module}
       ctx = llvm_context
-      hooks = ReplCodegenHooks::Active.new(repl_state, well_known_source: well_known_source)
       visitor = CodeGenVisitor.new(@program, node,
         single_module: true,
         llvm_context: ctx,
-        hooks: hooks)
+        well_known_source: well_known_source)
       visitor.accept(node)
       visitor.process_finished_hooks
       visitor.finish

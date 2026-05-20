@@ -26,7 +26,7 @@ class Crystal::CodeGenVisitor
     # because the alternative (`__crystal_once`) leaves a dangling
     # Operation in `@@operations` on a raising init, which the JIT can't
     # currently unwind across submissions.
-    if @repl_hooks.repl_mode?
+    if @program.repl_state?
       return run_once_inline(flag, func)
     end
 
