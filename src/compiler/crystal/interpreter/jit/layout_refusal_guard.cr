@@ -14,15 +14,15 @@ module Crystal::JIT
     end
 
     # Unresolved class paths fall through silently to normal semantic.
+    # First finding that survives the filters raises; later findings
+    # never get a chance to fire, so no dedup state is needed.
     def check(node : ASTNode, repl_state : Crystal::ReplState) : Nil
       findings = LayoutChangeDetector.detect(node)
       return if findings.empty?
 
-      seen = Set(String).new
       findings.each do |finding|
         type_name = AstHelpers.path_to_string(finding.class_path).presence
         next unless type_name
-        next if seen.includes?(type_name)
         existing = @program.types[type_name]?
         next unless existing.is_a?(Crystal::ModuleType)
         next unless type_has_live_instance?(existing, repl_state)
@@ -35,7 +35,6 @@ module Crystal::JIT
           next if superclass_unchanged?(existing, finding.related_path)
         end
 
-        seen << type_name
         raise Session::LayoutChangeRefused.new(
           "#{type_name} #{finding.reason_text}, but at least one instance has been allocated. " \
           "Hot reload can't relayout existing objects safely; call `Crystal::JIT::Repl#reset` " \
