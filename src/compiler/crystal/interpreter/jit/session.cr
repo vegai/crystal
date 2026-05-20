@@ -54,6 +54,9 @@ module Crystal::JIT
     @disposed = false
     @semantic_graph_clean = false
     @argv : CArgv = CArgv::EMPTY
+    # Built by `ensure_jit_initialized`. Pre-init submissions can't
+    # have live instances, so the call-site `try` is the natural no-op.
+    @layout_guard : LayoutRefusalGuard? = nil
     # Flipped by `Repl` when the warmup thread finishes touching shared
     # state (`@program.string_pool`, types, defs). `auto_complete`'s
     # method-name lookup walks `@program.types`, so reads must be gated
@@ -290,7 +293,7 @@ module Crystal::JIT
     # Compile a submission into an invokable wrapper. Separated from
     # `invoke` so callers can cache the wrapper across re-runs.
     def compile(node : ASTNode, well_known_source : ASTNode? = nil) : CompiledWrapper
-      check_layout_change_refusal(node)
+      @layout_guard.try &.check(node, repl_state)
       walked, dirty = begin_submission_walk(node)
       ensure_libs_loaded(dirty)
       run_jit(walked, well_known_source)
@@ -427,78 +430,6 @@ module Crystal::JIT
       repl_state.drain_slot_updates do |slot_name, body_name|
         repoint_slot(slot_name, body_name)
       end
-    end
-
-    # Raised on a layout-changing redef of a class with at least one live
-    # instance. Unresolved paths fall through to normal semantic.
-    class LayoutChangeRefused < Exception
-    end
-
-    private def check_layout_change_refusal(node : ASTNode) : Nil
-      findings = LayoutChangeDetector.detect(node)
-      return if findings.empty?
-      lljit = lljit?
-      return unless lljit
-
-      seen = Set(String).new
-      findings.each do |finding|
-        type_name = path_to_string(finding.class_path).presence
-        next unless type_name
-        next if seen.includes?(type_name)
-        existing = @program.types[type_name]?
-        next unless existing.is_a?(Crystal::ModuleType)
-        next unless type_has_live_instance?(existing, lljit)
-
-        # `include` with no ivars and a restated superclass do not change layout.
-        if finding.is_a?(LayoutChangeDetector::IncludeFinding) &&
-           include_module_brings_no_ivars?(finding.include_path)
-          next
-        end
-        if finding.is_a?(LayoutChangeDetector::SuperclassDeclarationFinding) &&
-           superclass_unchanged?(existing, finding.superclass_path)
-          next
-        end
-
-        seen << type_name
-        raise LayoutChangeRefused.new(
-          "#{type_name} #{finding.reason_text}, but at least one instance has been allocated. " \
-          "Hot reload can't relayout existing objects safely; call `Crystal::JIT::Repl#reset` " \
-          "to drop the program state and start over.")
-      end
-    end
-
-    # True when `type`'s `:instantiated` flag is registered with the JIT
-    # and the runtime byte at that address is non-zero.
-    private def type_has_live_instance?(type : Crystal::ModuleType, lljit : LLVM::Orc::LLJIT) : Bool
-      flag_name = "@\"#{type.llvm_name}:instantiated\""
-      return false unless repl_state.flag_registered?(flag_name)
-      flag_ptr = lljit.lookup(flag_name)
-      return false if flag_ptr.address == 0
-      flag_ptr.as(UInt8*).value != 0
-    end
-
-    # True when `path` resolves to a module with no ivars of its own.
-    private def include_module_brings_no_ivars?(path : Crystal::Path?) : Bool
-      return false unless path
-      name = path_to_string(path).presence
-      return false unless name
-      mod = @program.types[name]?
-      return false unless mod.is_a?(Crystal::ModuleType)
-      mod.instance_vars.empty?
-    end
-
-    # True when `path` resolves to `existing`'s current superclass.
-    private def superclass_unchanged?(existing : Crystal::ModuleType, path : Crystal::Path?) : Bool
-      return false unless path
-      name = path_to_string(path).presence
-      return false unless name
-      ast_super = @program.types[name]?
-      return false unless ast_super
-      existing.superclass == ast_super
-    end
-
-    private def path_to_string(path : Crystal::Path) : String
-      path.names.join("::")
     end
 
     # Wraps the JIT-emitted `crystal_jit_notify_reaped` fun in a host-side
@@ -648,6 +579,8 @@ module Crystal::JIT
       dylib = lljit.main_jit_dylib
       dylib.link_symbols_from_current_process(lljit.global_prefix)
       @dylib = dylib
+
+      @layout_guard = LayoutRefusalGuard.new(@program, lljit)
     end
 
     # Pins LLJIT's TargetMachine at `CodeGenOptLevel::None`; hot reload
