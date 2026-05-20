@@ -129,11 +129,12 @@ module Crystal
       when TypeDeclaration
         node.var.is_a?(ClassVar)
       when FileNode, Expressions, ClassDef, ModuleDef, EnumDef, Alias, Include, Extend, LibDef, Def, Macro, Call, Require,
-           MacroExpression, MacroIf, MacroFor, VisibilityModifier,
-           # Recurse into rescue groups so a class-var assign nested in
-           # an ExceptionHandler still gets type-checked here.
-           ExceptionHandler, Rescue
+           MacroExpression, MacroIf, MacroFor, VisibilityModifier
         true
+      when ExceptionHandler, Rescue
+        # JIT only: pick up `@@x = ... rescue default` so the assign gets
+        # type-checked. AOT historically skipped these.
+        !@program.repl_state?.nil?
       else
         false
       end
