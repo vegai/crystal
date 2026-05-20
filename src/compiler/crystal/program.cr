@@ -28,28 +28,6 @@ module Crystal
     # All symbols (:foo, :bar) found in the program
     getter symbols = Set(String).new
 
-    @symbols_array_cache : Array(String)?
-    @symbols_array_cache_size : Int32 = 0
-
-    # Returns the symbol at `id`, or nil if `id` is out of range. Memoises
-    # `symbols.to_a` so per-result REPL pretty-prints (`Crystal::JIT::Value`)
-    # don't reallocate per call. Symbols are insertion-ordered (Set is
-    # Hash-backed) so the array matches the codegen-side index assignment.
-    #
-    # Cache invariant: the size check is sufficient because `Set` is
-    # append-only — symbols are only ever inserted, never removed or
-    # reordered. If that ever changes, switch to a generation counter
-    # bumped on every mutation.
-    def symbol_at?(id : Int32) : String?
-      cache = @symbols_array_cache
-      if cache.nil? || @symbols_array_cache_size != symbols.size
-        cache = symbols.to_a
-        @symbols_array_cache = cache
-        @symbols_array_cache_size = cache.size
-      end
-      cache[id]?
-    end
-
     # Hash that prevents recursive splat expansions. For example:
     #
     # ```
@@ -403,15 +381,12 @@ module Crystal
 
     property(target_machine : LLVM::TargetMachine) { codegen_target.to_target_machine }
 
-    # JIT REPL state. Allocated by `enable_repl_state!` when
-    # `Crystal::JIT::Session` flips us into REPL mode; AOT keeps this
-    # nil and pays zero heap cost for the contained sets/hashes.
-    # Access via `repl_state?` and gate on the result; the raising
-    # accessor was removed so every site proves the precondition.
-    getter? repl_state : ReplState? = nil
-
-    def enable_repl_state! : ReplState
-      @repl_state ||= ReplState.new
+    # Stub for the JIT REPL state accessor. JIT builds reopen `Program`
+    # via `interpreter/jit/program_extras.cr` and override this with one
+    # that returns the field; AOT builds keep the no-op and skip both
+    # the field and `enable_repl_state!`.
+    def repl_state? : ReplState?
+      nil
     end
 
     def codegen_target=(@codegen_target : Codegen::Target) : Codegen::Target
