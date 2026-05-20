@@ -272,8 +272,12 @@ class Crystal::CodeGenVisitor
 
   def read_const(const, node)
     # repl_mode reads through the global so a later const redef
-    # reaches callers compiled before the redef.
-    if @program.repl_state?
+    # reaches callers compiled before the redef. Literals fall through
+    # to the inlining path below: a redef'd literal stales any function
+    # body compiled against the old value, but prelude consts (`Int32::MAX`,
+    # `Float64::INFINITY`, ...) are never redef'd and shouldn't pay a
+    # runtime global load on hot paths.
+    if @program.repl_state? && !const.compile_time_value
       set_current_debug_location node if @debug.line_numbers?
       last = read_const_pointer(const)
       @last = to_lhs last, const.value.type
