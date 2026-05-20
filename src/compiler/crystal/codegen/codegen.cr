@@ -440,8 +440,11 @@ module Crystal
 
     # No-op outside `@single_module`. AOT builds get `Internal`; JIT
     # submissions get `LinkOnceODR` so later submissions can resolve
-    # the symbol against an earlier module's storage.
-    private def module_local_linkage(value : LLVM::ValueMethods) : Nil
+    # the symbol against an earlier module's storage. Crystal's LLVM
+    # binding has no `GlobalValue` class; callers pass either a global
+    # (`LLVM::Value`) or a `LLVM::Function`, both of which include
+    # `ValueMethods` and so carry the `linkage=` setter.
+    private def module_local_linkage(value : LLVM::Value | LLVM::Function) : Nil
       return unless @single_module
       value.linkage = @repl_state ? LLVM::Linkage::LinkOnceODR : LLVM::Linkage::Internal
     end
