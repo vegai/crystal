@@ -134,7 +134,7 @@ module Crystal
       when ExceptionHandler, Rescue
         # JIT only: pick up `@@x = ... rescue default` so the assign gets
         # type-checked. AOT historically skipped these.
-        !@program.repl_state?.nil?
+        @program.repl_state? != nil
       else
         false
       end

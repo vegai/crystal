@@ -21,6 +21,15 @@ module Crystal::JIT
       @program, @session, @context = build_session_objects
     end
 
+    # Runs on a Boehm finalizer thread, which forbids mutex acquisition.
+    # `unregister_gc_roots` is `LibGC.remove_roots`, documented safe from
+    # finalizers; the signal bridge is left in place because clearing it
+    # would lock `SignalChildHandler.@@mutex`. Full teardown (including
+    # the bridge) lives in `Session#dispose`.
+    def finalize : Nil
+      @session.unregister_gc_roots
+    end
+
     # Resets the Repl to a pristine state. Next submission re-loads
     # the prelude from scratch.
     def reset : Nil
@@ -49,15 +58,6 @@ module Crystal::JIT
       @session_initialized = false
       @submission_count = 0
       @prelude_semantic_in_progress = false
-    end
-
-    # Runs on a Boehm finalizer thread, which forbids mutex acquisition.
-    # `unregister_gc_roots` is `LibGC.remove_roots`, documented safe from
-    # finalizers; the signal bridge is left in place because clearing it
-    # would lock `SignalChildHandler.@@mutex`. Full teardown (including
-    # the bridge) lives in `Session#dispose`.
-    def finalize
-      @session.unregister_gc_roots
     end
 
     def run : Nil
@@ -335,7 +335,7 @@ module Crystal::JIT
       @prelude_semantic_in_progress = false
     end
 
-    private def reset_on_pre_success_error
+    private def reset_on_pre_success_error : Nil
       return unless @prelude_semantic_in_progress
       reset
       STDERR.puts "[jit: session reset]"

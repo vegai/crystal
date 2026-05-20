@@ -120,6 +120,11 @@ module Crystal
   end
 
   class Program
+    # Per-Program cache of `pkg-config` resolutions keyed by
+    # `(module-name, static?)`. Skips re-forking `pkg-config` once per
+    # `@[Link]` annotation within one compile.
+    @pkg_config_cache = {} of {String, Bool} => String?
+
     def lib_flags(cross_compiling : Bool = false)
       has_flag?("msvc") ? lib_flags_windows(cross_compiling) : lib_flags_posix(cross_compiling)
     end
@@ -270,11 +275,6 @@ module Crystal
     end
 
     PKG_CONFIG_PATH = Process.find_executable("pkg-config")
-
-    # Per-Program cache of `pkg-config` resolutions keyed by
-    # `(module-name, static?)`. Skips re-forking `pkg-config` once per
-    # `@[Link]` annotation within one compile.
-    @pkg_config_cache = {} of {String, Bool} => String?
 
     # Returns the result of running `pkg-config mod` but returns nil if
     # pkg-config is not installed, or the module does not exist.
