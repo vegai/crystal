@@ -76,6 +76,9 @@ class Crystal::CodeGenVisitor
     return no_dispatch if target_def.is_a?(External)
     return no_dispatch if is_fun_literal
     return no_dispatch if is_closure
+    # In `--embed-compiler` builds the indirection is per-`@[Embeddable]`;
+    # the JIT REPL keeps the blanket "every def is reloadable" shape.
+    return no_dispatch if @program.has_flag?("embed_compiler") && !embeddable_def?(target_def)
 
     if existing_version = rs.emitted_stub_version?(mangled_name)
       new_version = existing_version + 1
@@ -87,6 +90,20 @@ class Crystal::CodeGenVisitor
       rs.set_emitted_stub_version(mangled_name, 1)
       {emit_body, true, "#{mangled_name}#{Crystal::REPL_VERSION_SUFFIX_PREFIX}1"}
     end
+  end
+
+  # True when the def or any of its enclosing type's ancestors carries
+  # `@[Embeddable]`. Class methods (`def self.foo`) own through the
+  # metaclass; `instance_type` normalises that back to the actual type
+  # before walking the ancestor chain.
+  private def embeddable_def?(target_def : Def) : Bool
+    embeddable_annotation = @program.embeddable_annotation
+    return true if target_def.annotation(embeddable_annotation)
+    owner = target_def.owner?
+    return false unless owner
+    instance = owner.instance_type
+    return true if instance.annotation(embeddable_annotation)
+    instance.ancestors.any? { |ancestor| ancestor.annotation(embeddable_annotation) }
   end
 
   def codegen_fun(mangled_name, target_def, self_type, is_exported_fun = false, fun_module_info = type_module(self_type), is_fun_literal = false, is_closure = false)

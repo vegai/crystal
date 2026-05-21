@@ -5,12 +5,12 @@ module Crystal::JIT
     property prelude : String = "prelude"
     getter program : Program
     getter context : Context
+    getter session : Session
     # Extra `[source, filename]` pairs appended to the prelude AST.
     # Spec harness uses this to stub runtime helpers without shifting
     # the user code's `__LINE__`.
     getter prelude_extra : Array({String, String}) = [] of {String, String}
 
-    @session : Session
     @prelude_ast : ASTNode? = nil
     @wrapper_cache = WrapperCache.new
     @submission_count : Int32 = 0

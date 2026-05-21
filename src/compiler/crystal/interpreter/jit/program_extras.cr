@@ -1,20 +1,12 @@
 require "../../program"
 
-# JIT-side additions to `Crystal::Program`. Kept out of `program.cr` so
-# AOT builds carry neither the field nor the symbol-cache.
+# JIT-side additions to `Crystal::Program`. The `@repl_state` field
+# and `enable_repl_state!` moved to `program.cr` so AOT builds run
+# under `--embed-compiler` can flip the same gates. The symbol-cache
+# below stays JIT-only because no AOT path uses it.
 
 module Crystal
   class Program
-    @repl_state : ReplState? = nil
-
-    def repl_state? : ReplState?
-      @repl_state
-    end
-
-    def enable_repl_state! : ReplState
-      @repl_state ||= ReplState.new
-    end
-
     @symbols_array_cache : Array(String)?
     @symbols_array_cache_size : Int32 = 0
 

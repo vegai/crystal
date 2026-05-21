@@ -201,6 +201,30 @@ module Crystal
     # Whether to link statically
     property? static = false
 
+    # Submode for `--embed-compiler`. `Dynamic` links `libLLVM.so` at runtime;
+    # `Static` bakes LLVM into the host binary. The flag's submode parsing
+    # accepts `dynamic` (default) and `static`.
+    enum EmbedCompilerMode
+      Dynamic
+      Static
+
+      def self.parse?(value : String) : self?
+        case value
+        when "dynamic" then Dynamic
+        when "static"  then Static
+        end
+      end
+    end
+
+    # If set, the resulting binary embeds the Crystal compiler so that loaded
+    # modules can be JIT-compiled in-process. See `hot-reload-plan.md` for the
+    # design. `nil` means the flag was not passed.
+    property embed_compiler_mode : EmbedCompilerMode? = nil
+
+    def embed_compiler? : Bool
+      !@embed_compiler_mode.nil?
+    end
+
     property dependency_printer : DependencyPrinter? = nil
 
     # Program that was created for the last compilation.
@@ -283,6 +307,7 @@ module Crystal
       program.flags << "release" if release?
       program.flags << "debug" unless debug.none?
       program.flags << "static" if static?
+      program.flags << "embed_compiler" if embed_compiler?
       program.flags.concat @flags
       program.wants_doc = wants_doc?
       program.color = color?
@@ -290,6 +315,7 @@ module Crystal
       program.show_error_trace = show_error_trace?
       program.progress_tracker = @progress_tracker
       program.warnings = @warnings
+      program.enable_repl_state! if embed_compiler?
       program
     end
 
@@ -346,7 +372,7 @@ module Crystal
 
       llvm_modules = @progress_tracker.stage("Codegen (crystal)") do
         program.codegen node, debug: debug, frame_pointers: frame_pointers,
-          single_module: @single_module || @cross_compile || !@emit_targets.none?
+          single_module: @single_module || @cross_compile || !@emit_targets.none? || embed_compiler?
       end
 
       output_dir = CacheDir.instance.directory_for(sources)

@@ -30,6 +30,40 @@ The interactive REPL persists defs, top-level locals, and `require`s across subm
 | 9.5a | done | broader method-redef coverage (explicit-restriction args, class methods, instance methods, replay from `def_instances` for unrestricted args) |
 | 9.5b | done | benchmark + doc closing pass |
 
+## Embed phases (AOT host with `--embed-compiler`)
+
+Building on the JIT REPL machinery to let AOT-compiled programs load and execute Crystal modules in-process. Design lives in `hot-reload-plan.md`.
+
+| phase | status | summary |
+|---|---|---|
+| B0 | done | `crystal build --embed-compiler[=dynamic|static]`; rejects `--static` / `--cross-compile` conflicts |
+| B1a | done | when flag is set, `program.enable_repl_state!` flips on dispatch indirection on the AOT codegen path; verified `nm -D ./host` shows `:slot` globals |
+| B1b | done | `@[Embeddable]` restricts indirection to opted-in defs/types; ancestor propagation covers subclasses of `@[Embeddable]` abstract classes |
+| B1c | done | existing `-rdynamic` already exports slots; `dlsym(RTLD_DEFAULT, "*Tagged::new<...>:slot")` resolves end-to-end |
+| B1d | done | `primitives_spec` (717 examples) runs clean under `--embed-compiler`; full codegen sweep (1810 examples) clean |
+| B2 | done | host source bundled into `__crystal_embedded_sources_data` (+ `_size`) on the main module; `Crystal::Embed::HostSources` runtime accessor parses the TOC + content blob |
+| B3 | done | `require "embed"` pulls in `compiler/crystal/interpreter`; user binary links against `libLLVM.so` in dynamic mode (~50 MB) |
+| B4 | done | `Crystal::Embed.load/reload/unload` lazily builds the JIT `Repl`; PID-based fork detection; mutex-serialised loads; `before_reload` hook |
+| B5a | done | `Crystal::Embed::Registry(T)` API + reload hook; works with the JIT-side type identity once a host-defined abstract class is materialised |
+| B5b | done | Two bridges shipped. `Crystal::Embed.materialize_files(paths)` re-walks user-listed sources into the JIT `Program` so loaded modules can subclass walked types. `Crystal::Embed.declare_slot name : (T...) -> R` declares a typed slot the host calls through; a loaded module's matching top-level def is auto-installed (mangled-name lookup via the JIT's LLJIT). Signature is restricted to primitives, `Symbol`, `String`, and `Bytes` — host-defined classes hit the type-identity gap and stay on the materialise + registry path |
+| B5c | deferred | symbol-resolution audit; the cases currently exercised (stdlib calls from loaded modules) resolve cleanly via `link_symbols_from_current_process` |
+| B6 | done | `DispatchSlotUpdater` resolves slots via `dlsym(RTLD_DEFAULT, ...)` before falling back to `LLJIT.lookup` so AOT-emitted slots get repointed |
+| B7 | deferred | end-to-end integration test — partial coverage in `embed_compiler_spec.cr` |
+| B8 | this section | docs + status row; full benchmarks deferred until materialisation matures |
+
+**Architectural caveat (type identity across AOT/JIT):** types declared in the host's source and walked again via `materialize_files` live in the JIT `Program` as distinct entities from the same source's AOT-compiled types. The simplest working pattern is to keep `@[Embeddable]` abstract classes in dedicated definition files and route the host through them only via `Crystal::Embed` APIs — a full type-identity bridge is future work.
+
+**What works today:**
+
+- `--embed-compiler` builds emit slot globals for `@[Embeddable]` defs/types; binaries are byte-for-byte identical in output to plain builds for code that doesn't use Embed.
+- `require "embed"` produces a binary that boots without invoking the compiler (~5 MB blob overhead from bundled source, ~50 MB total from libLLVM-dynamic).
+- `Crystal::Embed.load(path)` JIT-compiles and runs a script; reload re-runs the updated file; `before_reload` lets host bookkeeping drop stale entries.
+- `Crystal::Embed.materialize_files(paths)` walks type definitions into the JIT `Program` so loaded modules can subclass `@[Embeddable]` abstract classes from those files.
+- `Crystal::Embed.declare_slot name : (T...) -> R` declares a typed slot in the host; loaded modules supply matching top-level defs. The macro generates a `Proc(T..., R)?` accessor; the loader resolves the def's mangled name on each load (or reload) and installs the address. Signature is restricted to primitives, `Symbol`, `String`, and `Bytes` — cross-boundary types still route through `materialize_files` + `Registry`.
+- Loaded modules can `puts`, define their own classes/methods, subclass materialised types, and call stdlib.
+
+**What doesn't work yet:** loaded modules referencing host-defined *concrete* constants/methods (only types from `materialize_files`-walked sources are visible).
+
 ## Benchmark snapshot
 
 Measured on CachyOS / Crystal 1.21.0-dev / LLVM 22.1.5. Wall-clock, smallest-of-three by hand.

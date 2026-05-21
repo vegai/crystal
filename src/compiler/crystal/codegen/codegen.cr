@@ -358,6 +358,8 @@ module Crystal
         define_slice_constant(info)
       end
 
+      emit_embedded_sources
+
       @last = llvm_nil
       @fun_literal_count = 0
 
@@ -490,7 +492,15 @@ module Crystal
       ptr_ty = @main_llvm_context.void_pointer
       slot = @main_mod.globals.add(ptr_ty, SYMBOL_TABLE_SLOT_NAME)
       slot.linkage = LLVM::Linkage::LinkOnceODR
-      slot.initializer = ptr_ty.null
+      # AOT --embed-compiler builds have no Session to repoint the slot at
+      # runtime, so prime it at link time with the static symbol-table address.
+      # JIT REPL leaves the slot at null and `Session#repoint_slot` writes the
+      # current submission's table in.
+      if @program.has_flag?("embed_compiler") && (table = @main_mod.globals[symbol_table_name]?)
+        slot.initializer = table.to_value
+      else
+        slot.initializer = ptr_ty.null
+      end
       slot
     end
 

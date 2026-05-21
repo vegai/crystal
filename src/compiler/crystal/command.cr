@@ -359,6 +359,12 @@ class Crystal::Command
                               single_file = false, dependencies = false,
                               path_filter = false, unreachable_command = false,
                               allowed_formats = ["text", "json"])
+    # Bare `--embed-compiler` (no `=MODE`) expands to `--embed-compiler=dynamic`
+    # so OptionParser doesn't swallow the next positional argument as a value.
+    unless no_codegen
+      @options.map! { |opt| opt == "--embed-compiler" ? "--embed-compiler=dynamic" : opt }
+    end
+
     compiler = new_compiler
     compiler.progress_tracker = @progress_tracker
     compiler.no_codegen = no_codegen
@@ -560,6 +566,13 @@ class Crystal::Command
         opts.on("--static", "Link statically") do
           compiler.static = true
         end
+        opts.on("--embed-compiler=MODE", "Embed the Crystal compiler for in-process module loading (MODE: dynamic [default], static)") do |mode|
+          if parsed = Compiler::EmbedCompilerMode.parse?(mode)
+            compiler.embed_compiler_mode = parsed
+          else
+            raise Error.new("Invalid --embed-compiler mode: #{mode} (expected: dynamic, static)")
+          end
+        end
       end
 
       opts.on("--stdin-filename ", "Source file name to be read from STDIN") do |stdin_filename|
@@ -581,6 +594,15 @@ class Crystal::Command
     end
 
     compiler.link_flags = link_flags.join(' ') unless link_flags.empty?
+
+    if compiler.embed_compiler?
+      if compiler.static?
+        error "--embed-compiler is incompatible with --static (use --embed-compiler=static to statically link LLVM only)"
+      end
+      if compiler.cross_compile?
+        error "--embed-compiler is incompatible with --cross-compile"
+      end
+    end
 
     filenames += opt_filenames.not_nil!
     arguments = opt_arguments.not_nil!

@@ -91,6 +91,27 @@ end
 annotation Experimental
 end
 
+# Marks a method or type as embeddable so that AOT builds run under
+# `crystal build --embed-compiler` emit dispatch indirection for it.
+# The flag itself enables the indirection mechanism on the program;
+# the annotation tells codegen which defs/types actually participate.
+#
+# - On a `def`, the method gets a dispatch slot and an updatable stub.
+# - On a `class`/`module`, every direct method of the type is treated
+#   as if it carried `@[Embeddable]`.
+#
+# Outside an `--embed-compiler` build the annotation is inert; AOT builds
+# without the flag emit plain code.
+#
+# ```
+# @[Embeddable]
+# abstract class Plugin
+#   abstract def name : String
+# end
+# ```
+annotation Embeddable
+end
+
 # The annotation allows to assume special CPU model/features for a method.
 #
 # It is similar to the `--cpu` and `--mattr` build arguments, but where the

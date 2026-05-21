@@ -281,6 +281,7 @@ module Crystal
       types["ReturnsTwice"] = @returns_twice_annotation = AnnotationType.new self, self, "ReturnsTwice"
       types["ThreadLocal"] = @thread_local_annotation = AnnotationType.new self, self, "ThreadLocal"
       types["Deprecated"] = @deprecated_annotation = AnnotationType.new self, self, "Deprecated"
+      types["Embeddable"] = @embeddable_annotation = AnnotationType.new self, self, "Embeddable"
       types["Experimental"] = @experimental_annotation = AnnotationType.new self, self, "Experimental"
       types["TargetFeature"] = @target_feature_annotation = AnnotationType.new self, self, "TargetFeature"
 
@@ -381,12 +382,19 @@ module Crystal
 
     property(target_machine : LLVM::TargetMachine) { codegen_target.to_target_machine }
 
-    # Stub for the JIT REPL state accessor. JIT builds reopen `Program`
-    # via `interpreter/jit/program_extras.cr` and override this with one
-    # that returns the field; AOT builds keep the no-op and skip both
-    # the field and `enable_repl_state!`.
+    # Lazily-allocated `ReplState`. Activated by `enable_repl_state!`
+    # from the JIT REPL (`Crystal::JIT::Session`) and by AOT builds run
+    # under `--embed-compiler`. AOT builds without the flag keep this
+    # `nil`, and the codegen-side dispatch-indirection emission short-
+    # circuits to no-op when the field is nil.
+    @repl_state : ReplState? = nil
+
     def repl_state? : ReplState?
-      nil
+      @repl_state
+    end
+
+    def enable_repl_state! : ReplState
+      @repl_state ||= ReplState.new
     end
 
     def codegen_target=(@codegen_target : Codegen::Target) : Codegen::Target
@@ -575,7 +583,7 @@ module Crystal
                      uint8 uint16 uint32 uint64 uint128 float float32 float64 string symbol pointer enumerable indexable
                      array static_array exception tuple named_tuple proc union enum range slice regex crystal
                      packed_annotation thread_local_annotation no_inline_annotation target_feature_annotation
-                     always_inline_annotation naked_annotation returns_twice_annotation
+                     always_inline_annotation naked_annotation returns_twice_annotation embeddable_annotation
                      raises_annotation primitive_annotation call_convention_annotation
                      flags_annotation link_annotation extern_annotation deprecated_annotation experimental_annotation) %}
       def {{name.id}}
